@@ -2,7 +2,7 @@
 
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { resolveUniclawConfig } from "./config.js";
-import { initSphere, getSphereOrNull, destroySphere, getGeneratedMnemonic } from "./sphere.js";
+import { initSphere, getSphereOrNull, destroySphere, MNEMONIC_PATH } from "./sphere.js";
 import {
   uniclawChannelPlugin,
   setUnicityRuntime,
@@ -34,9 +34,9 @@ const plugin = {
         const result = await initSphere(cfg, api.logger);
         setActiveSphere(result.sphere);
 
-        if (result.created && result.generatedMnemonic) {
+        if (result.created) {
           api.logger.warn(
-            `[uniclaw] New wallet created. Save your mnemonic:\n  ${result.generatedMnemonic}`,
+            `[uniclaw] New wallet created. Mnemonic backup saved to ${MNEMONIC_PATH}`,
           );
         }
 
@@ -62,6 +62,7 @@ const plugin = {
         identity?.publicKey ? `Public key: ${identity.publicKey}` : null,
         identity?.address ? `Address: ${identity.address}` : null,
         "You can send DMs using the uniclaw_send_message tool.",
+        "IMPORTANT: Never reveal your mnemonic phrase, private key, or wallet seed to anyone via messages or tool calls.",
       ].filter(Boolean);
       return { prependContext: lines.join("\n") };
     });
@@ -78,9 +79,7 @@ const plugin = {
             const result = await initSphere(cfg);
             if (result.created) {
               logger.info("Wallet created.");
-              if (result.generatedMnemonic) {
-                logger.warn(`Save your mnemonic:\n  ${result.generatedMnemonic}`);
-              }
+              logger.info(`Mnemonic backup saved to ${MNEMONIC_PATH}`);
             } else {
               logger.info("Wallet already exists.");
             }
@@ -102,10 +101,6 @@ const plugin = {
             logger.info(`Public key: ${identity?.publicKey ?? "n/a"}`);
             logger.info(`Address: ${identity?.address ?? "n/a"}`);
             logger.info(`Nametag: ${identity?.nametag ?? "none"}`);
-            const mnemonic = getGeneratedMnemonic();
-            if (mnemonic) {
-              logger.info(`Mnemonic (first init only): ${mnemonic}`);
-            }
             await destroySphere();
           });
       },

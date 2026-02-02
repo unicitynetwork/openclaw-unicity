@@ -5,6 +5,8 @@ const mockSphereInit = vi.fn();
 const mockCreateNodeProviders = vi.fn();
 const mockRegisterNametag = vi.fn();
 const mockDestroy = vi.fn();
+const mockMkdirSync = vi.fn();
+const mockWriteFileSync = vi.fn();
 
 vi.mock("@unicitylabs/sphere-sdk", () => ({
   Sphere: { init: mockSphereInit },
@@ -16,11 +18,11 @@ vi.mock("@unicitylabs/sphere-sdk/impl/nodejs", () => ({
 
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
-  return { ...actual, mkdirSync: vi.fn() };
+  return { ...actual, mkdirSync: mockMkdirSync, writeFileSync: mockWriteFileSync };
 });
 
 // Dynamic import so mocks are in place
-const { initSphere, getSphere, getSphereOrNull, destroySphere, getGeneratedMnemonic } =
+const { initSphere, getSphere, getSphereOrNull, destroySphere, MNEMONIC_PATH } =
   await import("../src/sphere.js");
 
 describe("sphere", () => {
@@ -78,9 +80,49 @@ describe("sphere", () => {
     const result = await initSphere({ network: "testnet" });
 
     expect(result.created).toBe(true);
-    expect(result.generatedMnemonic).toBe("word1 word2 word3");
     expect(getSphereOrNull()).toBe(fakeSphere);
-    expect(getGeneratedMnemonic()).toBe("word1 word2 word3");
+  });
+
+  it("saves mnemonic to file with 0o600 permissions on creation", async () => {
+    mockSphereInit.mockResolvedValue({
+      sphere: fakeSphere,
+      created: true,
+      generatedMnemonic: "word1 word2 word3",
+    });
+
+    await initSphere({ network: "testnet" });
+
+    expect(mockWriteFileSync).toHaveBeenCalledWith(
+      MNEMONIC_PATH,
+      "word1 word2 word3\n",
+      { mode: 0o600 },
+    );
+  });
+
+  it("does not write mnemonic file when wallet already exists", async () => {
+    mockSphereInit.mockResolvedValue({
+      sphere: fakeSphere,
+      created: false,
+    });
+
+    await initSphere({ network: "testnet" });
+
+    expect(mockWriteFileSync).not.toHaveBeenCalled();
+  });
+
+  it("logs mnemonic file path to provided logger", async () => {
+    mockSphereInit.mockResolvedValue({
+      sphere: fakeSphere,
+      created: true,
+      generatedMnemonic: "word1 word2 word3",
+    });
+    const logger = { info: vi.fn(), warn: vi.fn() };
+
+    await initSphere({ network: "testnet" }, logger);
+
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining("Mnemonic saved to"),
+    );
   });
 
   it("initSphere passes network and additionalRelays to providers", async () => {
@@ -158,7 +200,7 @@ describe("sphere", () => {
       generatedMnemonic: "test mnemonic",
     });
     mockRegisterNametag.mockRejectedValue(new Error("already taken"));
-    const logger = { warn: vi.fn() };
+    const logger = { info: vi.fn(), warn: vi.fn() };
 
     await initSphere({ network: "testnet", nametag: "taken-name" }, logger);
 
@@ -223,29 +265,5 @@ describe("sphere", () => {
     await destroySphere();
     expect(getSphereOrNull()).toBeNull();
     expect(mockDestroy).toHaveBeenCalledOnce();
-  });
-
-  it("getGeneratedMnemonic clears after first read", async () => {
-    mockSphereInit.mockResolvedValue({
-      sphere: fakeSphere,
-      created: true,
-      generatedMnemonic: "secret words",
-    });
-
-    await initSphere({ network: "testnet" });
-    expect(getGeneratedMnemonic()).toBe("secret words");
-    expect(getGeneratedMnemonic()).toBeUndefined();
-  });
-
-  it("destroySphere clears generatedMnemonic", async () => {
-    mockSphereInit.mockResolvedValue({
-      sphere: fakeSphere,
-      created: true,
-      generatedMnemonic: "secret words",
-    });
-
-    await initSphere({ network: "testnet" });
-    await destroySphere();
-    expect(getGeneratedMnemonic()).toBeUndefined();
   });
 });

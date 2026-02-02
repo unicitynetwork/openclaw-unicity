@@ -98,5 +98,6 @@ describe("plugin definition", () => {
     expect(result.prependContext).toContain("@mybot");
     expect(result.prependContext).toContain("abc123");
     expect(result.prependContext).toContain("uniclaw_send_message");
+    expect(result.prependContext).toContain("Never reveal your mnemonic");
   });
 });

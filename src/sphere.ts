@@ -2,26 +2,26 @@
 
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { Sphere } from "@unicitylabs/sphere-sdk";
 import { createNodeProviders } from "@unicitylabs/sphere-sdk/impl/nodejs";
 import type { UniclawConfig } from "./config.js";
 
 const DATA_DIR = join(homedir(), ".openclaw", "unicity");
 const TOKENS_DIR = join(DATA_DIR, "tokens");
+export const MNEMONIC_PATH = join(DATA_DIR, "mnemonic.txt");
 
 let sphereInstance: Sphere | null = null;
 let initPromise: Promise<InitSphereResult> | null = null;
-let generatedMnemonicOnce: string | undefined;
 
 export type SphereLogger = {
   warn: (msg: string) => void;
+  info: (msg: string) => void;
 };
 
 export type InitSphereResult = {
   sphere: Sphere;
   created: boolean;
-  generatedMnemonic?: string;
 };
 
 export async function initSphere(
@@ -70,7 +70,9 @@ async function doInitSphere(
   sphereInstance = result.sphere;
 
   if (result.created && result.generatedMnemonic) {
-    generatedMnemonicOnce = result.generatedMnemonic;
+    writeFileSync(MNEMONIC_PATH, result.generatedMnemonic + "\n", { mode: 0o600 });
+    const log = logger ?? console;
+    log.info(`[uniclaw] Mnemonic saved to ${MNEMONIC_PATH}`);
   }
 
   // Mint nametag only when the wallet doesn't already have one
@@ -91,7 +93,6 @@ async function doInitSphere(
   return {
     sphere: result.sphere,
     created: result.created,
-    generatedMnemonic: result.generatedMnemonic,
   };
 }
 
@@ -106,15 +107,8 @@ export function getSphereOrNull(): Sphere | null {
   return sphereInstance;
 }
 
-export function getGeneratedMnemonic(): string | undefined {
-  const mnemonic = generatedMnemonicOnce;
-  generatedMnemonicOnce = undefined;
-  return mnemonic;
-}
-
 export async function destroySphere(): Promise<void> {
   initPromise = null;
-  generatedMnemonicOnce = undefined;
   if (sphereInstance) {
     await sphereInstance.destroy();
     sphereInstance = null;
