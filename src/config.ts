@@ -5,6 +5,7 @@ export type UnicityNetwork = "testnet" | "mainnet" | "dev";
 export type UniclawConfig = {
   network?: UnicityNetwork;
   nametag?: string;
+  owner?: string;
   additionalRelays?: string[];
 };
 
@@ -16,8 +17,9 @@ export function resolveUniclawConfig(raw: Record<string, unknown> | undefined): 
     ? (cfg.network as UnicityNetwork)
     : "testnet";
   const nametag = typeof cfg.nametag === "string" ? cfg.nametag : undefined;
+  const owner = typeof cfg.owner === "string" ? cfg.owner.replace(/^@/, "").trim() || undefined : undefined;
   const additionalRelays = Array.isArray(cfg.additionalRelays)
     ? cfg.additionalRelays.filter((r): r is string => typeof r === "string")
     : undefined;
-  return { network, nametag, additionalRelays };
+  return { network, nametag, owner, additionalRelays };
 }

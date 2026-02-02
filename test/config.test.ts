@@ -6,6 +6,7 @@ describe("resolveUniclawConfig", () => {
     const cfg = resolveUniclawConfig(undefined);
     expect(cfg.network).toBe("testnet");
     expect(cfg.nametag).toBeUndefined();
+    expect(cfg.owner).toBeUndefined();
     expect(cfg.additionalRelays).toBeUndefined();
   });
 
@@ -49,5 +50,16 @@ describe("resolveUniclawConfig", () => {
 
   it("ignores non-array additionalRelays", () => {
     expect(resolveUniclawConfig({ additionalRelays: "not-array" }).additionalRelays).toBeUndefined();
+  });
+
+  it("parses owner string and strips @ prefix", () => {
+    expect(resolveUniclawConfig({ owner: "alice" }).owner).toBe("alice");
+    expect(resolveUniclawConfig({ owner: "@alice" }).owner).toBe("alice");
+  });
+
+  it("ignores non-string or empty owner", () => {
+    expect(resolveUniclawConfig({ owner: 123 }).owner).toBeUndefined();
+    expect(resolveUniclawConfig({ owner: "" }).owner).toBeUndefined();
+    expect(resolveUniclawConfig({ owner: " " }).owner).toBeUndefined();
   });
 });

@@ -13,6 +13,10 @@
       "nametag": {
         "type": "string"
       },
+      "owner": {
+        "type": "string",
+        "description": "Nametag or public key of the trusted human owner. Only the owner can give commands to the agent."
+      },
       "additionalRelays": {
         "type": "array",
         "items": { "type": "string" }

@@ -71,9 +71,16 @@ export function resolveUnicityAccount(opts: {
 
 let activeSphere: Sphere | null = null;
 let pluginRuntime: PluginRuntime | null = null;
+let ownerIdentity: string | null = null;
 
 export function setUnicityRuntime(rt: PluginRuntime): void {
   pluginRuntime = rt;
+}
+export function setOwnerIdentity(owner: string | undefined): void {
+  ownerIdentity = owner ?? null;
+}
+export function getOwnerIdentity(): string | null {
+  return ownerIdentity;
 }
 export function getUnicityRuntime(): PluginRuntime {
   if (!pluginRuntime) throw new Error("Unicity runtime not initialized");
@@ -84,6 +91,17 @@ export function setActiveSphere(s: Sphere | null): void {
 }
 export function getActiveSphere(): Sphere | null {
   return activeSphere;
+}
+
+function isSenderOwner(senderPubkey: string, senderNametag?: string): boolean {
+  if (!ownerIdentity) return false;
+  const normalized = ownerIdentity.replace(/^@/, "").toLowerCase();
+  if (senderPubkey.toLowerCase() === normalized) return true;
+  if (senderNametag) {
+    const tag = senderNametag.replace(/^@/, "").toLowerCase();
+    if (tag === normalized) return true;
+  }
+  return false;
 }
 
 export const uniclawChannelPlugin = {
@@ -176,6 +194,8 @@ export const uniclawChannelPlugin = {
         const peerId = msg.senderNametag ?? msg.senderPubkey;
         ctx.log?.debug(`[${ctx.account.accountId}] DM from ${peerId}: ${msg.content.slice(0, 80)}`);
 
+        const isOwner = isSenderOwner(msg.senderPubkey, msg.senderNametag);
+
         const inboundCtx = runtime.channel.reply.finalizeInboundContext({
           Body: msg.content,
           RawBody: msg.content,
@@ -188,7 +208,8 @@ export const uniclawChannelPlugin = {
           AccountId: ctx.account.accountId,
           SenderName: msg.senderNametag ?? msg.senderPubkey.slice(0, 12),
           SenderId: msg.senderPubkey,
-          CommandAuthorized: true,
+          IsOwner: isOwner,
+          CommandAuthorized: isOwner,
         });
 
         runtime.channel.reply
