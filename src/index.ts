@@ -109,6 +109,35 @@ const plugin = {
             logger.info(`Nametag: ${identity?.nametag ?? "none"}`);
             await destroySphere();
           });
+
+        cmd
+          .command("send")
+          .description("Send a DM to a nametag or pubkey")
+          .argument("<to>", "Recipient nametag or pubkey")
+          .argument("<message>", "Message text")
+          .action(async (to: string, message: string) => {
+            const result = await initSphere(cfg);
+            const sphere = result.sphere;
+            logger.info(`Sending DM to ${to}...`);
+            await sphere.communications.sendDM(to, message);
+            logger.info("Sent.");
+            await destroySphere();
+          });
+
+        cmd
+          .command("listen")
+          .description("Listen for incoming DMs (ctrl-c to stop)")
+          .action(async () => {
+            const result = await initSphere(cfg);
+            const sphere = result.sphere;
+            const identity = sphere.identity;
+            logger.info(`Listening as ${identity?.nametag ?? identity?.publicKey ?? "unknown"}...`);
+            sphere.communications.onDirectMessage((msg) => {
+              const from = msg.senderNametag ?? msg.senderPubkey;
+              logger.info(`[DM from ${from}]: ${msg.content}`);
+            });
+            await new Promise(() => {}); // block forever
+          });
       },
       { commands: ["uniclaw"] },
     );

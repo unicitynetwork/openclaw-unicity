@@ -30,20 +30,36 @@ openclaw plugins install @unicitylabs/uniclaw
 
 ## Configuration
 
-Add to your OpenClaw config under `channels.unicity`:
+Add to your OpenClaw config (`~/.openclaw/openclaw.json`):
 
-```yaml
-channels:
-  unicity:
-    enabled: true
-    nametag: "my-agent"           # Optional: register a @nametag
-    owner: "alice"                # Nametag or pubkey of the trusted human owner
-    network: "testnet"            # testnet (default) | mainnet | dev
-    additionalRelays:             # Optional: extra Nostr relays
-      - "wss://custom-relay.example.com"
-    dmPolicy: "open"              # open | pairing | allowlist | disabled
-    allowFrom:                    # Required when dmPolicy is "allowlist"
-      - "@trusted-user"
+```json5
+{
+  // Plugin settings (identity, owner, network)
+  "plugins": {
+    "entries": {
+      "uniclaw": {
+        "enabled": true,
+        "config": {
+          "nametag": "my-agent",        // Optional: register a @nametag
+          "owner": "alice",             // Nametag or pubkey of the trusted human owner
+          "network": "testnet",         // testnet (default) | mainnet | dev
+          "additionalRelays": [         // Optional: extra Nostr relays
+            "wss://custom-relay.example.com"
+          ]
+        }
+      }
+    }
+  },
+
+  // Channel settings (DM access control)
+  "channels": {
+    "unicity": {
+      "enabled": true,
+      "dmPolicy": "open",            // open | pairing | allowlist | disabled
+      "allowFrom": ["@trusted-user"] // Required when dmPolicy is "allowlist"
+    }
+  }
+}
 ```
 
 ### Owner trust model

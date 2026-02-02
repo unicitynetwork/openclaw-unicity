@@ -2,11 +2,12 @@
 
 import type { Sphere } from "@unicitylabs/sphere-sdk";
 import type { PluginRuntime } from "openclaw/plugin-sdk";
+import { waitForSphere } from "./sphere.js";
 
 const DEFAULT_ACCOUNT_ID = "default";
 
 // ---------------------------------------------------------------------------
-// Account config shape (read from openclaw config under channels.unicity)
+// Account config shape (read from openclaw config under channels.uniclaw)
 // ---------------------------------------------------------------------------
 
 export interface UnicityAccountConfig {
@@ -35,7 +36,7 @@ export interface ResolvedUnicityAccount {
 
 function readChannelConfig(cfg: Record<string, unknown>): UnicityAccountConfig | undefined {
   const channels = cfg.channels as Record<string, unknown> | undefined;
-  return channels?.unicity as UnicityAccountConfig | undefined;
+  return channels?.uniclaw as UnicityAccountConfig | undefined;
 }
 
 export function listUnicityAccountIds(_cfg: Record<string, unknown>): string[] {
@@ -105,14 +106,14 @@ function isSenderOwner(senderPubkey: string, senderNametag?: string): boolean {
 }
 
 export const uniclawChannelPlugin = {
-  id: "unicity" as const,
+  id: "uniclaw" as const,
 
   meta: {
-    id: "unicity" as const,
+    id: "uniclaw" as const,
     label: "Unicity",
     selectionLabel: "Unicity (Sphere DMs)",
-    docsPath: "/channels/unicity",
-    docsLabel: "unicity",
+    docsPath: "/channels/uniclaw",
+    docsLabel: "uniclaw",
     blurb: "Private Nostr DMs via Unicity Sphere SDK.",
     order: 110,
   },
@@ -122,7 +123,7 @@ export const uniclawChannelPlugin = {
     media: false,
   },
 
-  reload: { configPrefixes: ["channels.unicity"] },
+  reload: { configPrefixes: ["channels.uniclaw"] },
 
   // -- config adapter -------------------------------------------------------
   config: {
@@ -130,7 +131,7 @@ export const uniclawChannelPlugin = {
     resolveAccount: (cfg: Record<string, unknown>, accountId?: string | null) =>
       resolveUnicityAccount({ cfg, accountId, sphere: activeSphere }),
     defaultAccountId: () => DEFAULT_ACCOUNT_ID,
-    isConfigured: (account: ResolvedUnicityAccount) => account.configured,
+    isConfigured: (_account: ResolvedUnicityAccount) => true,
     describeAccount: (account: ResolvedUnicityAccount) => ({
       accountId: account.accountId,
       name: account.name,
@@ -155,10 +156,10 @@ export const uniclawChannelPlugin = {
       text: string;
       accountId?: string | null;
     }) => {
-      const sphere = activeSphere;
+      const sphere = activeSphere ?? await waitForSphere();
       if (!sphere) throw new Error("Unicity Sphere not initialized");
       await sphere.communications.sendDM(ctx.to, ctx.text ?? "");
-      return { channel: "unicity", to: ctx.to };
+      return { channel: "uniclaw", to: ctx.to };
     },
   },
 
@@ -173,7 +174,7 @@ export const uniclawChannelPlugin = {
       log?: { info: (m: string) => void; warn: (m: string) => void; error: (m: string) => void; debug: (m: string) => void };
       setStatus: (s: Record<string, unknown>) => void;
     }) => {
-      const sphere = activeSphere;
+      const sphere = activeSphere ?? await waitForSphere();
       if (!sphere) throw new Error("Unicity Sphere not initialized — run `openclaw uniclaw init`");
 
       const runtime = getUnicityRuntime();
@@ -190,9 +191,11 @@ export const uniclawChannelPlugin = {
         `[${ctx.account.accountId}] Starting Unicity channel (nametag: ${sphere.identity?.nametag ?? "none"}, pubkey: ${sphere.identity?.publicKey?.slice(0, 16)}...)`,
       );
 
+      ctx.log?.info(`[${ctx.account.accountId}] Subscribing to DMs (pubkey: ${sphere.identity?.publicKey?.slice(0, 16)}...)`);
+
       const unsub = sphere.communications.onDirectMessage((msg) => {
         const peerId = msg.senderNametag ?? msg.senderPubkey;
-        ctx.log?.debug(`[${ctx.account.accountId}] DM from ${peerId}: ${msg.content.slice(0, 80)}`);
+        ctx.log?.info(`[${ctx.account.accountId}] DM received from ${peerId}: ${msg.content.slice(0, 80)}`);
 
         const isOwner = isSenderOwner(msg.senderPubkey, msg.senderNametag);
 
@@ -201,10 +204,10 @@ export const uniclawChannelPlugin = {
           RawBody: msg.content,
           From: peerId,
           To: sphere.identity?.nametag ?? sphere.identity?.publicKey ?? "agent",
-          SessionKey: `unicity:dm:${peerId}`,
+          SessionKey: `uniclaw:dm:${peerId}`,
           ChatType: "direct",
-          Surface: "unicity",
-          Provider: "unicity",
+          Surface: "uniclaw",
+          Provider: "uniclaw",
           AccountId: ctx.account.accountId,
           SenderName: msg.senderNametag ?? msg.senderPubkey.slice(0, 12),
           SenderId: msg.senderPubkey,
@@ -298,9 +301,9 @@ export const uniclawChannelPlugin = {
     resolveDmPolicy: (params: { account: ResolvedUnicityAccount }) => ({
       policy: params.account.config.dmPolicy ?? "open",
       allowFrom: params.account.config.allowFrom ?? [],
-      policyPath: "channels.unicity.dmPolicy",
-      allowFromPath: "channels.unicity.allowFrom",
-      approveHint: 'openclaw config set channels.unicity.allowFrom \'["<pubkey-or-nametag>"]\'',
+      policyPath: "channels.uniclaw.dmPolicy",
+      allowFromPath: "channels.uniclaw.allowFrom",
+      approveHint: 'openclaw config set channels.uniclaw.allowFrom \'["<pubkey-or-nametag>"]\'',
     }),
   },
 } as const;

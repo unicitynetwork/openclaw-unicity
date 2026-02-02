@@ -14,6 +14,15 @@ export const MNEMONIC_PATH = join(DATA_DIR, "mnemonic.txt");
 let sphereInstance: Sphere | null = null;
 let initPromise: Promise<InitSphereResult> | null = null;
 
+// Deferred that channels can await — resolved once initSphere completes.
+let sphereReady: { promise: Promise<Sphere | null>; resolve: (s: Sphere | null) => void };
+function resetSphereReady() {
+  let resolve!: (s: Sphere | null) => void;
+  const promise = new Promise<Sphere | null>((r) => { resolve = r; });
+  sphereReady = { promise, resolve };
+}
+resetSphereReady();
+
 export type SphereLogger = {
   warn: (msg: string) => void;
   info: (msg: string) => void;
@@ -38,9 +47,13 @@ export async function initSphere(
 
   initPromise = doInitSphere(cfg, logger);
   try {
-    return await initPromise;
+    const result = await initPromise;
+    sphereReady.resolve(result.sphere);
+    return result;
   } catch (err) {
     initPromise = null;
+    sphereReady.resolve(null);
+    resetSphereReady();
     throw err;
   }
 }
@@ -107,10 +120,22 @@ export function getSphereOrNull(): Sphere | null {
   return sphereInstance;
 }
 
+/** Wait for sphere initialization (even if it hasn't started yet). */
+export function waitForSphere(): Promise<Sphere | null> {
+  if (sphereInstance) return Promise.resolve(sphereInstance);
+  return sphereReady.promise;
+}
+
+/** Resolve the sphere-ready deferred to null (for tests). */
+export function cancelSphereWait(): void {
+  sphereReady.resolve(null);
+}
+
 export async function destroySphere(): Promise<void> {
   initPromise = null;
   if (sphereInstance) {
     await sphereInstance.destroy();
     sphereInstance = null;
   }
+  resetSphereReady();
 }

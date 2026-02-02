@@ -8,14 +8,15 @@ import {
   setOwnerIdentity,
   type ResolvedUnicityAccount,
 } from "../src/channel.js";
+import { cancelSphereWait, destroySphere } from "../src/sphere.js";
 
 describe("uniclawChannelPlugin shape", () => {
   it("has correct id", () => {
-    expect(uniclawChannelPlugin.id).toBe("unicity");
+    expect(uniclawChannelPlugin.id).toBe("uniclaw");
   });
 
   it("has full meta", () => {
-    expect(uniclawChannelPlugin.meta.id).toBe("unicity");
+    expect(uniclawChannelPlugin.meta.id).toBe("uniclaw");
     expect(uniclawChannelPlugin.meta.label).toBe("Unicity");
     expect(uniclawChannelPlugin.meta.selectionLabel).toBeTruthy();
     expect(uniclawChannelPlugin.meta.docsPath).toBeTruthy();
@@ -59,7 +60,7 @@ describe("uniclawChannelPlugin shape", () => {
       account: { config: {} } as ResolvedUnicityAccount,
     });
     expect(policy.policy).toBe("open");
-    expect(policy.allowFromPath).toBe("channels.unicity.allowFrom");
+    expect(policy.allowFromPath).toBe("channels.uniclaw.allowFrom");
   });
 });
 
@@ -78,7 +79,7 @@ describe("config helpers", () => {
 
   it("resolveUnicityAccount reads channel config", () => {
     const cfg = {
-      channels: { unicity: { name: "my-bot", dmPolicy: "allowlist", enabled: false } },
+      channels: { uniclaw: { name: "my-bot", dmPolicy: "allowlist", enabled: false } },
     };
     const account = resolveUnicityAccount({ cfg, sphere: null });
     expect(account.name).toBe("my-bot");
@@ -100,9 +101,11 @@ describe("config helpers", () => {
 describe("outbound.sendText", () => {
   it("throws when sphere is not set", async () => {
     setActiveSphere(null);
+    cancelSphereWait();
     await expect(
       uniclawChannelPlugin.outbound.sendText({ cfg: {}, to: "@alice", text: "hi" }),
     ).rejects.toThrow("Sphere not initialized");
+    await destroySphere(); // reset deferred for next test
   });
 
   it("sends DM via sphere and returns channel/to", async () => {
@@ -119,7 +122,7 @@ describe("outbound.sendText", () => {
     });
 
     expect(mockSendDM).toHaveBeenCalledWith("@alice", "hello");
-    expect(result).toEqual({ channel: "unicity", to: "@alice" });
+    expect(result).toEqual({ channel: "uniclaw", to: "@alice" });
 
     setActiveSphere(null);
   });
@@ -194,9 +197,9 @@ describe("gateway.startAccount", () => {
     const ctx = mockRuntime.channel.reply.finalizeInboundContext.mock.calls[0][0];
     expect(ctx.Body).toBe("Hello agent!");
     expect(ctx.From).toBe("@alice");
-    expect(ctx.SessionKey).toBe("unicity:dm:@alice");
+    expect(ctx.SessionKey).toBe("uniclaw:dm:@alice");
     expect(ctx.ChatType).toBe("direct");
-    expect(ctx.Surface).toBe("unicity");
+    expect(ctx.Surface).toBe("uniclaw");
     expect(ctx.SenderId).toBe("deadbeef");
   });
 
@@ -348,9 +351,11 @@ describe("gateway.startAccount", () => {
 
   it("throws when sphere not set", async () => {
     setActiveSphere(null);
+    cancelSphereWait();
     await expect(
       uniclawChannelPlugin.gateway.startAccount(mockCtx),
     ).rejects.toThrow("Sphere not initialized");
+    await destroySphere(); // reset deferred
   });
 
   it("unsubscribes DM listener on abort signal", async () => {
