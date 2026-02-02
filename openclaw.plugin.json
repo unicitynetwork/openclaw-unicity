@@ -1,0 +1,22 @@
+{
+  "id": "uniclaw",
+  "channels": ["unicity"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "network": {
+        "type": "string",
+        "enum": ["testnet", "mainnet", "dev"],
+        "default": "testnet"
+      },
+      "nametag": {
+        "type": "string"
+      },
+      "additionalRelays": {
+        "type": "array",
+        "items": { "type": "string" }
+      }
+    }
+  }
+}

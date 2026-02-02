@@ -1,0 +1,26 @@
+/** Agent tool: uniclaw_send_message — send a Nostr DM via Sphere. */
+
+import { Type } from "@sinclair/typebox";
+import { getSphere } from "../sphere.js";
+
+export const sendMessageTool = {
+  name: "uniclaw_send_message",
+  description:
+    "Send a direct message to a Unicity/Nostr user. The recipient can be a nametag (e.g. @alice) or a hex public key.",
+  parameters: Type.Object({
+    recipient: Type.String({ description: "Nametag or public key of the recipient" }),
+    message: Type.String({ description: "Message text to send" }),
+  }),
+  async execute(_toolCallId: string, params: { recipient: string; message: string }) {
+    const sphere = getSphere();
+    const dm = await sphere.communications.sendDM(params.recipient, params.message);
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: `Message sent to ${params.recipient} (id: ${dm.id})`,
+        },
+      ],
+    };
+  },
+};

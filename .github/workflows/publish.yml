@@ -1,0 +1,61 @@
+name: Publish
+
+run-name: Publish v${{ inputs.version }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g. 0.2.0)"
+        required: true
+        type: string
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install latest npm (trusted publishing requires >=11.5.1)
+        run: npm install -g npm@latest
+
+      - name: Set version in package.json
+        run: npm version "${{ inputs.version }}" --no-git-tag-version
+
+      - run: npm ci
+
+      - run: npm run lint
+
+      - run: npm test
+
+      - name: Pack tarball
+        run: npm pack
+
+      - name: Publish to npm
+        run: npm publish --access public
+
+      - name: Commit version bump and tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json
+          git commit -m "v${{ inputs.version }}"
+          git tag "v${{ inputs.version }}"
+          git push origin HEAD:main --tags
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ inputs.version }}" \
+            --title "v${{ inputs.version }}" \
+            --notes "Published to npm: https://www.npmjs.com/package/@unicitylabs/uniclaw/v/${{ inputs.version }}" \
+            unicitylabs-uniclaw-${{ inputs.version }}.tgz

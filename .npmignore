@@ -1,0 +1,8 @@
+test/
+coverage/
+vitest.config.ts
+.gitignore
+.github/
+PLAN.md
+*.test.ts
+*.tgz

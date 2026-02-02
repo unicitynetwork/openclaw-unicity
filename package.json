@@ -1,0 +1,57 @@
+{
+  "name": "@unicitylabs/uniclaw",
+  "version": "0.1.0",
+  "description": "Unicity wallet identity and encrypted DMs for OpenClaw agents — powered by Sphere SDK",
+  "type": "module",
+  "main": "src/index.ts",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/unicitynetwork/uniclaw.git"
+  },
+  "homepage": "https://github.com/unicitynetwork/uniclaw#readme",
+  "bugs": {
+    "url": "https://github.com/unicitynetwork/uniclaw/issues"
+  },
+  "keywords": [
+    "unicity",
+    "openclaw",
+    "nostr",
+    "wallet",
+    "agent",
+    "dm",
+    "sphere-sdk"
+  ],
+  "files": [
+    "src/**/*",
+    "openclaw.plugin.json",
+    "LICENSE",
+    "README.md"
+  ],
+  "openclaw": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "oxlint src/ test/"
+  },
+  "dependencies": {
+    "@unicitylabs/sphere-sdk": "^0.1.3"
+  },
+  "peerDependencies": {
+    "openclaw": "*"
+  },
+  "devDependencies": {
+    "@sinclair/typebox": "^0.34.48",
+    "openclaw": "latest",
+    "oxlint": "^1.43.0",
+    "vitest": "^4.0.18"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
