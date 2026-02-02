@@ -278,4 +278,18 @@ describe("gateway.startAccount", () => {
       uniclawChannelPlugin.gateway.startAccount(mockCtx),
     ).rejects.toThrow("Sphere not initialized");
   });
+
+  it("unsubscribes DM listener on abort signal", async () => {
+    const abortController = new AbortController();
+    mockCtx.abortSignal = abortController.signal;
+
+    const unsub = vi.fn();
+    mockSphere.communications.onDirectMessage.mockReturnValue(unsub);
+
+    await uniclawChannelPlugin.gateway.startAccount(mockCtx);
+
+    expect(unsub).not.toHaveBeenCalled();
+    abortController.abort();
+    expect(unsub).toHaveBeenCalledOnce();
+  });
 });

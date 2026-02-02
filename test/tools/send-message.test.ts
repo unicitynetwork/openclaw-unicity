@@ -30,9 +30,39 @@ describe("sendMessageTool", () => {
       message: "Hello Alice!",
     });
 
-    expect(mockSendDM).toHaveBeenCalledWith("@alice", "Hello Alice!");
+    expect(mockSendDM).toHaveBeenCalledWith("alice", "Hello Alice!");
     expect(result.content[0].text).toContain("@alice");
     expect(result.content[0].text).toContain("dm-42");
+  });
+
+  it("accepts a 64-char hex pubkey as recipient", async () => {
+    mockSendDM.mockResolvedValue({ id: "dm-99" });
+    const hexKey = "a".repeat(64);
+
+    await sendMessageTool.execute("call-3", {
+      recipient: hexKey,
+      message: "hi",
+    });
+
+    expect(mockSendDM).toHaveBeenCalledWith(hexKey, "hi");
+  });
+
+  it("rejects invalid recipient format", async () => {
+    await expect(
+      sendMessageTool.execute("call-4", {
+        recipient: "not valid!",
+        message: "hi",
+      }),
+    ).rejects.toThrow("Invalid recipient format");
+  });
+
+  it("rejects empty recipient", async () => {
+    await expect(
+      sendMessageTool.execute("call-5", {
+        recipient: "",
+        message: "hi",
+      }),
+    ).rejects.toThrow("Invalid recipient format");
   });
 
   it("propagates sendDM errors", async () => {

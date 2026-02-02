@@ -151,6 +151,22 @@ describe("sphere", () => {
     expect(result.created).toBe(true);
   });
 
+  it("logs nametag mint failure to provided logger", async () => {
+    mockSphereInit.mockResolvedValue({
+      sphere: fakeSphereNoNametag,
+      created: true,
+      generatedMnemonic: "test mnemonic",
+    });
+    mockRegisterNametag.mockRejectedValue(new Error("already taken"));
+    const logger = { warn: vi.fn() };
+
+    await initSphere({ network: "testnet", nametag: "taken-name" }, logger);
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to mint nametag "taken-name"'),
+    );
+  });
+
   it("returns cached sphere on second call", async () => {
     mockSphereInit.mockResolvedValue({
       sphere: fakeSphere,
@@ -166,6 +182,35 @@ describe("sphere", () => {
     expect(second.sphere).toBe(first.sphere);
   });
 
+  it("concurrent calls return same sphere (no double init)", async () => {
+    mockSphereInit.mockResolvedValue({
+      sphere: fakeSphere,
+      created: true,
+      generatedMnemonic: "mnemonic",
+    });
+
+    const [first, second] = await Promise.all([
+      initSphere({ network: "testnet" }),
+      initSphere({ network: "testnet" }),
+    ]);
+
+    expect(mockSphereInit).toHaveBeenCalledTimes(1);
+    expect(first.sphere).toBe(second.sphere);
+  });
+
+  it("resets initPromise on init failure so retry works", async () => {
+    mockSphereInit.mockRejectedValueOnce(new Error("network error"));
+    mockSphereInit.mockResolvedValueOnce({
+      sphere: fakeSphere,
+      created: true,
+      generatedMnemonic: "mnemonic",
+    });
+
+    await expect(initSphere({ network: "testnet" })).rejects.toThrow("network error");
+    const result = await initSphere({ network: "testnet" });
+    expect(result.sphere).toBe(fakeSphere);
+  });
+
   it("destroySphere cleans up and resets singleton", async () => {
     mockSphereInit.mockResolvedValue({
       sphere: fakeSphere,
@@ -178,5 +223,29 @@ describe("sphere", () => {
     await destroySphere();
     expect(getSphereOrNull()).toBeNull();
     expect(mockDestroy).toHaveBeenCalledOnce();
+  });
+
+  it("getGeneratedMnemonic clears after first read", async () => {
+    mockSphereInit.mockResolvedValue({
+      sphere: fakeSphere,
+      created: true,
+      generatedMnemonic: "secret words",
+    });
+
+    await initSphere({ network: "testnet" });
+    expect(getGeneratedMnemonic()).toBe("secret words");
+    expect(getGeneratedMnemonic()).toBeUndefined();
+  });
+
+  it("destroySphere clears generatedMnemonic", async () => {
+    mockSphereInit.mockResolvedValue({
+      sphere: fakeSphere,
+      created: true,
+      generatedMnemonic: "secret words",
+    });
+
+    await initSphere({ network: "testnet" });
+    await destroySphere();
+    expect(getGeneratedMnemonic()).toBeUndefined();
   });
 });

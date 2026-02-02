@@ -16,7 +16,7 @@ export interface UnicityAccountConfig {
   network?: string;
   additionalRelays?: string[];
   dmPolicy?: "pairing" | "allowlist" | "open" | "disabled";
-  allowFrom?: Array<string | number>;
+  allowFrom?: string[];
 }
 
 export interface ResolvedUnicityAccount {
@@ -123,7 +123,7 @@ export const uniclawChannelPlugin = {
     }),
     resolveAllowFrom: (params: { cfg: Record<string, unknown>; accountId?: string | null }) => {
       const account = resolveUnicityAccount({ ...params, sphere: activeSphere });
-      return (account.config.allowFrom ?? []).map(String);
+      return account.config.allowFrom ?? [];
     },
   },
 
@@ -213,6 +213,8 @@ export const uniclawChannelPlugin = {
       });
 
       ctx.log?.info(`[${ctx.account.accountId}] Unicity DM listener active`);
+
+      ctx.abortSignal.addEventListener("abort", () => unsub(), { once: true });
 
       return {
         stop: () => {

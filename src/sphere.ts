@@ -11,7 +11,12 @@ const DATA_DIR = join(homedir(), ".openclaw", "unicity");
 const TOKENS_DIR = join(DATA_DIR, "tokens");
 
 let sphereInstance: Sphere | null = null;
+let initPromise: Promise<InitSphereResult> | null = null;
 let generatedMnemonicOnce: string | undefined;
+
+export type SphereLogger = {
+  warn: (msg: string) => void;
+};
 
 export type InitSphereResult = {
   sphere: Sphere;
@@ -19,11 +24,31 @@ export type InitSphereResult = {
   generatedMnemonic?: string;
 };
 
-export async function initSphere(cfg: UniclawConfig): Promise<InitSphereResult> {
+export async function initSphere(
+  cfg: UniclawConfig,
+  logger?: SphereLogger,
+): Promise<InitSphereResult> {
   if (sphereInstance) {
     return { sphere: sphereInstance, created: false };
   }
 
+  if (initPromise) {
+    return initPromise;
+  }
+
+  initPromise = doInitSphere(cfg, logger);
+  try {
+    return await initPromise;
+  } catch (err) {
+    initPromise = null;
+    throw err;
+  }
+}
+
+async function doInitSphere(
+  cfg: UniclawConfig,
+  logger?: SphereLogger,
+): Promise<InitSphereResult> {
   mkdirSync(DATA_DIR, { recursive: true });
   mkdirSync(TOKENS_DIR, { recursive: true });
 
@@ -54,7 +79,12 @@ export async function initSphere(cfg: UniclawConfig): Promise<InitSphereResult> 
       await result.sphere.registerNametag(cfg.nametag);
     } catch (err) {
       // Non-fatal; nametag may already be taken by someone else
-      console.warn(`[uniclaw] Failed to mint nametag "${cfg.nametag}":`, err);
+      const msg = `[uniclaw] Failed to mint nametag "${cfg.nametag}": ${err}`;
+      if (logger) {
+        logger.warn(msg);
+      } else {
+        console.warn(msg);
+      }
     }
   }
 
@@ -77,10 +107,14 @@ export function getSphereOrNull(): Sphere | null {
 }
 
 export function getGeneratedMnemonic(): string | undefined {
-  return generatedMnemonicOnce;
+  const mnemonic = generatedMnemonicOnce;
+  generatedMnemonicOnce = undefined;
+  return mnemonic;
 }
 
 export async function destroySphere(): Promise<void> {
+  initPromise = null;
+  generatedMnemonicOnce = undefined;
   if (sphereInstance) {
     await sphereInstance.destroy();
     sphereInstance = null;

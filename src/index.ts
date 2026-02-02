@@ -31,7 +31,7 @@ const plugin = {
     api.registerService({
       id: "uniclaw",
       async start() {
-        const result = await initSphere(cfg);
+        const result = await initSphere(cfg, api.logger);
         setActiveSphere(result.sphere);
 
         if (result.created && result.generatedMnemonic) {
