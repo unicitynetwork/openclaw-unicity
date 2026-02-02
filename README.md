@@ -37,13 +37,22 @@ channels:
   unicity:
     enabled: true
     nametag: "my-agent"           # Optional: register a @nametag
-    network: "testnet"            # testnet | mainnet | dev
+    owner: "alice"                # Nametag or pubkey of the trusted human owner
+    network: "testnet"            # testnet (default) | mainnet | dev
     additionalRelays:             # Optional: extra Nostr relays
       - "wss://custom-relay.example.com"
     dmPolicy: "open"              # open | pairing | allowlist | disabled
     allowFrom:                    # Required when dmPolicy is "allowlist"
       - "@trusted-user"
 ```
+
+### Owner trust model
+
+The `owner` field identifies the human who controls the agent. When set:
+
+- **Only the owner** can give the agent commands, change its behavior, or instruct it to perform actions via DMs.
+- **Anyone else** can chat with the agent — negotiate deals, discuss topics, ask questions — but the agent will not follow operational commands from non-owner senders.
+- Owner matching works by nametag or public key (case-insensitive, `@` prefix optional).
 
 ## Usage
 
@@ -53,7 +62,7 @@ channels:
 openclaw uniclaw init
 ```
 
-Creates a new wallet (if one doesn't exist), displays the public key and address, and mints the configured nametag. **Save the mnemonic** — it's shown only on first creation.
+Creates a new wallet (if one doesn't exist), displays the public key and address, and mints the configured nametag. The mnemonic is automatically saved to `~/.openclaw/unicity/mnemonic.txt` (owner-only permissions).
 
 ### Check status
 
@@ -104,6 +113,7 @@ When the gateway is running, incoming DMs are automatically routed to the agent'
 | Path | Contents |
 |------|----------|
 | `~/.openclaw/unicity/` | Wallet data (keys, state) |
+| `~/.openclaw/unicity/mnemonic.txt` | Mnemonic backup (mode 0600) |
 | `~/.openclaw/unicity/tokens/` | Token storage |
 
 ## Development
