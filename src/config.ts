@@ -7,6 +7,8 @@ export type UniclawConfig = {
   nametag?: string;
   owner?: string;
   additionalRelays?: string[];
+  /** Aggregator API key (defaults to testnet key) */
+  apiKey?: string;
 };
 
 const VALID_NETWORKS = new Set<string>(["testnet", "mainnet", "dev"]);
@@ -21,5 +23,6 @@ export function resolveUniclawConfig(raw: Record<string, unknown> | undefined): 
   const additionalRelays = Array.isArray(cfg.additionalRelays)
     ? cfg.additionalRelays.filter((r): r is string => typeof r === "string")
     : undefined;
-  return { network, nametag, owner, additionalRelays };
+  const apiKey = typeof cfg.apiKey === "string" ? cfg.apiKey : undefined;
+  return { network, nametag, owner, additionalRelays, apiKey };
 }

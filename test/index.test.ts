@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 
 // Mock all heavy dependencies
 const mockSphereInit = vi.fn();
+const mockExistsSync = vi.fn().mockReturnValue(true);
 vi.mock("@unicitylabs/sphere-sdk", () => ({
   Sphere: { init: mockSphereInit },
 }));
@@ -10,8 +11,10 @@ vi.mock("@unicitylabs/sphere-sdk/impl/nodejs", () => ({
 }));
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
-  return { ...actual, mkdirSync: vi.fn() };
+  return { ...actual, mkdirSync: vi.fn(), writeFileSync: vi.fn(), existsSync: mockExistsSync };
 });
+// Mock fetch for trustbase download
+vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, text: () => Promise.resolve("{}") }));
 
 const { default: plugin } = await import("../src/index.js");
 const { setActiveSphere } = await import("../src/channel.js");
@@ -32,6 +35,11 @@ function makeApi() {
 }
 
 describe("plugin definition", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockExistsSync.mockReturnValue(true);
+  });
+
   afterEach(async () => {
     setActiveSphere(null);
     await destroySphere();

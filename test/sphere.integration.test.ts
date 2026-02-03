@@ -56,9 +56,9 @@ describe("sphere-sdk integration", () => {
 
     const identity = result.sphere.identity;
     expect(identity).toBeDefined();
-    expect(identity!.publicKey).toBeDefined();
-    expect(typeof identity!.publicKey).toBe("string");
-    expect(identity!.publicKey.length).toBeGreaterThan(0);
+    expect(identity!.chainPubkey).toBeDefined();
+    expect(typeof identity!.chainPubkey).toBe("string");
+    expect(identity!.chainPubkey.length).toBeGreaterThan(0);
   });
 
   it("loads existing wallet on second init (no new mnemonic)", async () => {
@@ -68,7 +68,7 @@ describe("sphere-sdk integration", () => {
     const providers = createNodeProviders({ network: "testnet", dataDir, tokensDir });
 
     const first = await Sphere.init({ ...providers, autoGenerate: true });
-    const firstPubkey = first.sphere.identity!.publicKey;
+    const firstPubkey = first.sphere.identity!.chainPubkey;
     await first.sphere.destroy();
 
     const providers2 = createNodeProviders({ network: "testnet", dataDir, tokensDir });
@@ -77,7 +77,7 @@ describe("sphere-sdk integration", () => {
 
     expect(second.created).toBe(false);
     expect(second.generatedMnemonic).toBeUndefined();
-    expect(second.sphere.identity!.publicKey).toBe(firstPubkey);
+    expect(second.sphere.identity!.chainPubkey).toBe(firstPubkey);
   });
 
   it("exposes communications API with sendDM and onDirectMessage", async () => {

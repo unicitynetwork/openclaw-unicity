@@ -194,7 +194,8 @@ export const uniclawChannelPlugin = {
       ctx.log?.info(`[${ctx.account.accountId}] Subscribing to DMs (pubkey: ${sphere.identity?.publicKey?.slice(0, 16)}...)`);
 
       const unsub = sphere.communications.onDirectMessage((msg) => {
-        const peerId = msg.senderNametag ?? msg.senderPubkey;
+        // Use @nametag if available, otherwise raw pubkey
+        const peerId = msg.senderNametag ? `@${msg.senderNametag}` : msg.senderPubkey;
         ctx.log?.info(`[${ctx.account.accountId}] DM received from ${peerId}: ${msg.content.slice(0, 80)}`);
 
         const isOwner = isSenderOwner(msg.senderPubkey, msg.senderNametag);

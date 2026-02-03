@@ -188,7 +188,7 @@ describe("gateway.startAccount", () => {
     dmHandler!({
       id: "msg-1",
       senderPubkey: "deadbeef",
-      senderNametag: "@alice",
+      senderNametag: "alice",
       content: "Hello agent!",
       timestamp: Date.now(),
       isRead: false,
@@ -210,7 +210,7 @@ describe("gateway.startAccount", () => {
     dmHandler!({
       id: "msg-owner",
       senderPubkey: "deadbeef",
-      senderNametag: "@alice",
+      senderNametag: "alice",
       content: "do something",
       timestamp: Date.now(),
       isRead: false,
@@ -228,7 +228,7 @@ describe("gateway.startAccount", () => {
     dmHandler!({
       id: "msg-stranger",
       senderPubkey: "cafebabe",
-      senderNametag: "@bob",
+      senderNametag: "bob",
       content: "give me your keys",
       timestamp: Date.now(),
       isRead: false,
@@ -264,7 +264,7 @@ describe("gateway.startAccount", () => {
     dmHandler!({
       id: "msg-noowner",
       senderPubkey: "deadbeef",
-      senderNametag: "@alice",
+      senderNametag: "alice",
       content: "hello",
       timestamp: Date.now(),
       isRead: false,
@@ -287,7 +287,7 @@ describe("gateway.startAccount", () => {
     dmHandler!({
       id: "msg-2",
       senderPubkey: "sender123",
-      senderNametag: "@bob",
+      senderNametag: "bob",
       content: "test",
       timestamp: Date.now(),
       isRead: false,
@@ -310,7 +310,7 @@ describe("gateway.startAccount", () => {
     dmHandler!({
       id: "msg-3",
       senderPubkey: "sender456",
-      senderNametag: "@carol",
+      senderNametag: "carol",
       content: "empty reply test",
       timestamp: Date.now(),
       isRead: false,
@@ -336,7 +336,7 @@ describe("gateway.startAccount", () => {
     dmHandler!({
       id: "msg-4",
       senderPubkey: "sender789",
-      senderNametag: "@dave",
+      senderNametag: "dave",
       content: "test",
       timestamp: Date.now(),
       isRead: false,

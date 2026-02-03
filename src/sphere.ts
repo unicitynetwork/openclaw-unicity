@@ -2,7 +2,7 @@
 
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { Sphere } from "@unicitylabs/sphere-sdk";
 import { createNodeProviders } from "@unicitylabs/sphere-sdk/impl/nodejs";
 import type { UniclawConfig } from "./config.js";
@@ -10,6 +10,11 @@ import type { UniclawConfig } from "./config.js";
 const DATA_DIR = join(homedir(), ".openclaw", "unicity");
 const TOKENS_DIR = join(DATA_DIR, "tokens");
 export const MNEMONIC_PATH = join(DATA_DIR, "mnemonic.txt");
+const TRUSTBASE_PATH = join(DATA_DIR, "trustbase.json");
+const TRUSTBASE_URL = "https://raw.githubusercontent.com/unicitynetwork/unicity-ids/refs/heads/main/bft-trustbase.testnet.json";
+
+/** Default testnet API key (from Sphere app) */
+const DEFAULT_API_KEY = "sk_06365a9c44654841a366068bcfc68986";
 
 let sphereInstance: Sphere | null = null;
 let initPromise: Promise<InitSphereResult> | null = null;
@@ -58,6 +63,21 @@ export async function initSphere(
   }
 }
 
+async function ensureTrustbase(logger?: SphereLogger): Promise<void> {
+  if (existsSync(TRUSTBASE_PATH)) return;
+
+  const log = logger ?? console;
+  log.info(`[uniclaw] Downloading trustbase from ${TRUSTBASE_URL}...`);
+
+  const res = await fetch(TRUSTBASE_URL);
+  if (!res.ok) {
+    throw new Error(`Failed to download trustbase: ${res.status} ${res.statusText}`);
+  }
+  const data = await res.text();
+  writeFileSync(TRUSTBASE_PATH, data, { mode: 0o644 });
+  log.info(`[uniclaw] Trustbase saved to ${TRUSTBASE_PATH}`);
+}
+
 async function doInitSphere(
   cfg: UniclawConfig,
   logger?: SphereLogger,
@@ -65,13 +85,23 @@ async function doInitSphere(
   mkdirSync(DATA_DIR, { recursive: true });
   mkdirSync(TOKENS_DIR, { recursive: true });
 
+  // Download trustbase if not present
+  await ensureTrustbase(logger);
+
+  const apiKey = cfg.apiKey ?? DEFAULT_API_KEY;
+
   const providers = createNodeProviders({
     network: cfg.network ?? "testnet",
     dataDir: DATA_DIR,
     tokensDir: TOKENS_DIR,
-    ...(cfg.additionalRelays?.length
-      ? { transport: { additionalRelays: cfg.additionalRelays } }
-      : {}),
+    oracle: {
+      trustBasePath: TRUSTBASE_PATH,
+      apiKey,
+    },
+    transport: {
+      debug: true,
+      ...(cfg.additionalRelays?.length ? { additionalRelays: cfg.additionalRelays } : {}),
+    },
   });
 
   const result = await Sphere.init({
@@ -100,6 +130,20 @@ async function doInitSphere(
       } else {
         console.warn(msg);
       }
+    }
+  }
+
+  // Send greeting DM to owner if configured
+  if (cfg.owner) {
+    const log = logger ?? console;
+    const myNametag = result.sphere.identity?.nametag ?? "unknown";
+    const greeting = `I'm online, master! I am @${myNametag}. What can I do for you?`;
+    log.info(`[uniclaw] Sending greeting to owner @${cfg.owner}...`);
+    try {
+      await result.sphere.communications.sendDM(`@${cfg.owner}`, greeting);
+      log.info(`[uniclaw] Greeting sent to @${cfg.owner}`);
+    } catch (err) {
+      log.warn(`[uniclaw] Failed to send greeting to @${cfg.owner}: ${err}`);
     }
   }
 

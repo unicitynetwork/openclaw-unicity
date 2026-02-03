@@ -7,6 +7,7 @@ const mockRegisterNametag = vi.fn();
 const mockDestroy = vi.fn();
 const mockMkdirSync = vi.fn();
 const mockWriteFileSync = vi.fn();
+const mockExistsSync = vi.fn();
 
 vi.mock("@unicitylabs/sphere-sdk", () => ({
   Sphere: { init: mockSphereInit },
@@ -18,8 +19,12 @@ vi.mock("@unicitylabs/sphere-sdk/impl/nodejs", () => ({
 
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
-  return { ...actual, mkdirSync: mockMkdirSync, writeFileSync: mockWriteFileSync };
+  return { ...actual, mkdirSync: mockMkdirSync, writeFileSync: mockWriteFileSync, existsSync: mockExistsSync };
 });
+
+// Mock global fetch for trustbase download
+const mockFetch = vi.fn();
+vi.stubGlobal("fetch", mockFetch);
 
 // Dynamic import so mocks are in place
 const { initSphere, getSphere, getSphereOrNull, destroySphere, MNEMONIC_PATH } =
@@ -54,6 +59,13 @@ describe("sphere", () => {
       transport: {},
       oracle: {},
       tokenStorage: {},
+    });
+    // Default: trustbase file exists, no download needed
+    mockExistsSync.mockReturnValue(true);
+    // Mock fetch for trustbase download (in case existsSync returns false)
+    mockFetch.mockResolvedValue({
+      ok: true,
+      text: () => Promise.resolve("{}"),
     });
   });
 
@@ -139,7 +151,7 @@ describe("sphere", () => {
     expect(mockCreateNodeProviders).toHaveBeenCalledWith(
       expect.objectContaining({
         network: "mainnet",
-        transport: { additionalRelays: ["wss://extra.relay"] },
+        transport: { debug: true, additionalRelays: ["wss://extra.relay"] },
       }),
     );
   });
