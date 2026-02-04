@@ -1,8 +1,9 @@
 /** Unicity channel plugin — Sphere SDK DMs over private Nostr relays. */
 
 import type { Sphere } from "@unicitylabs/sphere-sdk";
-import type { PluginRuntime } from "openclaw/plugin-sdk";
-import { waitForSphere } from "./sphere.js";
+import type { PluginRuntime, ChannelOnboardingAdapter } from "openclaw/plugin-sdk";
+import { waitForSphere, walletExists } from "./sphere.js";
+import { runInteractiveSetup } from "./setup.js";
 
 const DEFAULT_ACCOUNT_ID = "default";
 
@@ -307,4 +308,29 @@ export const uniclawChannelPlugin = {
       approveHint: 'openclaw config set channels.uniclaw.allowFrom \'["<pubkey-or-nametag>"]\'',
     }),
   },
-} as const;
+
+  // -- onboarding adapter (interactive setup via `openclaw onboard`) ---------
+  onboarding: {
+    channel: "uniclaw",
+
+    getStatus: async (_ctx) => ({
+      channel: "uniclaw" as const,
+      configured: walletExists(),
+      statusLines: walletExists()
+        ? [`Nametag: ${activeSphere?.identity?.nametag ?? "pending"}`]
+        : ["Not configured — run setup to create wallet"],
+      quickstartScore: 80,
+    }),
+
+    configure: async (ctx) => {
+      const { prompter, cfg } = ctx;
+      await runInteractiveSetup(prompter, {
+        loadConfig: () => cfg as Record<string, unknown>,
+        writeConfigFile: async (updatedCfg) => {
+          Object.assign(cfg, updatedCfg);
+        },
+      });
+      return { cfg };
+    },
+  } satisfies ChannelOnboardingAdapter,
+};

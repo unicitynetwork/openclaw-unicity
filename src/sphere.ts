@@ -7,7 +7,7 @@ import { Sphere } from "@unicitylabs/sphere-sdk";
 import { createNodeProviders } from "@unicitylabs/sphere-sdk/impl/nodejs";
 import type { UniclawConfig } from "./config.js";
 
-const DATA_DIR = join(homedir(), ".openclaw", "unicity");
+export const DATA_DIR = join(homedir(), ".openclaw", "unicity");
 const TOKENS_DIR = join(DATA_DIR, "tokens");
 export const MNEMONIC_PATH = join(DATA_DIR, "mnemonic.txt");
 const TRUSTBASE_PATH = join(DATA_DIR, "trustbase.json");
@@ -15,6 +15,11 @@ const TRUSTBASE_URL = "https://raw.githubusercontent.com/unicitynetwork/unicity-
 
 /** Default testnet API key (from Sphere app) */
 const DEFAULT_API_KEY = "sk_06365a9c44654841a366068bcfc68986";
+
+/** Check whether a wallet has been initialized (mnemonic file exists). */
+export function walletExists(): boolean {
+  return existsSync(MNEMONIC_PATH);
+}
 
 let sphereInstance: Sphere | null = null;
 let initPromise: Promise<InitSphereResult> | null = null;
@@ -116,6 +121,19 @@ async function doInitSphere(
     writeFileSync(MNEMONIC_PATH, result.generatedMnemonic + "\n", { mode: 0o600 });
     const log = logger ?? console;
     log.info(`[uniclaw] Mnemonic saved to ${MNEMONIC_PATH}`);
+  }
+
+  // Log helpful messages about nametag state
+  if (result.created && !cfg.nametag) {
+    const log = logger ?? console;
+    log.warn("[uniclaw] Wallet created without nametag. Run 'openclaw uniclaw setup' to configure.");
+  }
+
+  if (cfg.nametag && result.sphere.identity?.nametag && cfg.nametag !== result.sphere.identity.nametag) {
+    const log = logger ?? console;
+    log.warn(
+      `[uniclaw] Config nametag '${cfg.nametag}' differs from wallet nametag '${result.sphere.identity.nametag}'. Wallet nametag is used.`,
+    );
   }
 
   // Mint nametag only when the wallet doesn't already have one

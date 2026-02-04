@@ -20,17 +20,44 @@
 - **Encrypted DMs** — Send and receive direct messages over Unicity's private Nostr relays
 - **Agent tool** — `uniclaw_send_message` tool lets the agent send DMs on behalf of the user
 - **OpenClaw channel** — Full channel plugin with inbound/outbound message handling, status reporting, and DM access control
-- **CLI commands** — `openclaw uniclaw init` and `openclaw uniclaw status` for wallet management
+- **Interactive setup** — `openclaw uniclaw setup` wizard and `openclaw onboard` integration
+- **CLI commands** — `openclaw uniclaw init`, `status`, `send`, and `listen` for wallet management
 
-## Installation
+## Quick Start
+
+### 1. Install the plugin
 
 ```bash
 openclaw plugins install @unicitylabs/uniclaw
 ```
 
-## Configuration
+### 2. Run interactive setup
 
-Add to your OpenClaw config (`~/.openclaw/openclaw.json`):
+```bash
+openclaw uniclaw setup
+```
+
+This walks you through choosing a nametag, owner, and network, then writes the config for you.
+
+Alternatively, Uniclaw integrates with OpenClaw's onboarding wizard:
+
+```bash
+openclaw onboard
+```
+
+### 3. Start the gateway
+
+```bash
+openclaw gateway start
+```
+
+On first start, Uniclaw auto-generates a wallet and mints your chosen nametag. The mnemonic backup is saved to `~/.openclaw/unicity/mnemonic.txt` (owner-only permissions).
+
+That's it. Your agent can now send and receive encrypted DMs on the Unicity network.
+
+## Manual Configuration
+
+If you prefer to edit config directly, add to `~/.openclaw/openclaw.json`:
 
 ```json5
 {
@@ -53,7 +80,7 @@ Add to your OpenClaw config (`~/.openclaw/openclaw.json`):
 
   // Channel settings (DM access control)
   "channels": {
-    "unicity": {
+    "uniclaw": {
       "enabled": true,
       "dmPolicy": "open",            // open | pairing | allowlist | disabled
       "allowFrom": ["@trusted-user"] // Required when dmPolicy is "allowlist"
@@ -61,6 +88,8 @@ Add to your OpenClaw config (`~/.openclaw/openclaw.json`):
   }
 }
 ```
+
+Config changes take effect on the next gateway restart — no need to reinstall the plugin.
 
 ### Owner trust model
 
@@ -70,7 +99,15 @@ The `owner` field identifies the human who controls the agent. When set:
 - **Anyone else** can chat with the agent — negotiate deals, discuss topics, ask questions — but the agent will not follow operational commands from non-owner senders.
 - Owner matching works by nametag or public key (case-insensitive, `@` prefix optional).
 
-## Usage
+## CLI Commands
+
+### Interactive setup
+
+```bash
+openclaw uniclaw setup
+```
+
+Prompts for nametag, owner, and network, then writes the config file. Run this once to get started, or re-run to change settings.
 
 ### Initialize wallet
 
@@ -153,7 +190,9 @@ uniclaw/
 │   ├── index.ts              # Plugin entry point
 │   ├── config.ts             # Configuration schema
 │   ├── sphere.ts             # Sphere SDK singleton
-│   ├── channel.ts            # Channel plugin (adapters)
+│   ├── channel.ts            # Channel plugin (adapters + onboarding)
+│   ├── setup.ts              # Shared interactive setup logic
+│   ├── cli-prompter.ts       # WizardPrompter adapter for CLI
 │   └── tools/
 │       └── send-message.ts   # Agent tool
 ├── test/
