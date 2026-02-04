@@ -42,7 +42,7 @@
   },
   "dependencies": {
     "@sinclair/typebox": "^0.34.48",
-    "@unicitylabs/sphere-sdk": "file:../sphere-sdk.tgz"
+    "@unicitylabs/sphere-sdk": "^0.1.4"
   },
   "peerDependencies": {
     "openclaw": "*"
