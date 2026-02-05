@@ -146,6 +146,7 @@ describe("gateway.startAccount", () => {
         }),
         sendDM: vi.fn().mockResolvedValue({ id: "dm-1" }),
       },
+      on: vi.fn().mockReturnValue(vi.fn()),
     };
 
     mockRuntime = {

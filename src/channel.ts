@@ -240,11 +240,108 @@ export const uniclawChannelPlugin = {
 
       ctx.log?.info(`[${ctx.account.accountId}] Unicity DM listener active`);
 
-      ctx.abortSignal.addEventListener("abort", () => unsub(), { once: true });
+      // Subscribe to incoming token transfers
+      const unsubTransfer = sphere.on("transfer:incoming", (transfer) => {
+        const peerId = transfer.senderNametag ? `@${transfer.senderNametag}` : transfer.senderPubkey.slice(0, 12) + "…";
+        const totalAmount = transfer.tokens.map((t) => `${t.amount} ${t.symbol}`).join(", ");
+        const memo = transfer.memo ? ` — "${transfer.memo}"` : "";
+        const body = `[Payment received] ${totalAmount} from ${peerId}${memo}`;
+
+        ctx.log?.info(`[${ctx.account.accountId}] ${body}`);
+
+        const inboundCtx = runtime.channel.reply.finalizeInboundContext({
+          Body: body,
+          RawBody: body,
+          From: peerId,
+          To: sphere.identity?.nametag ?? sphere.identity?.publicKey ?? "agent",
+          SessionKey: `uniclaw:transfer:${transfer.id}`,
+          ChatType: "direct",
+          Surface: "uniclaw",
+          Provider: "uniclaw",
+          AccountId: ctx.account.accountId,
+          SenderName: transfer.senderNametag ?? transfer.senderPubkey.slice(0, 12),
+          SenderId: transfer.senderPubkey,
+          IsOwner: false,
+          CommandAuthorized: false,
+        });
+
+        runtime.channel.reply
+          .dispatchReplyWithBufferedBlockDispatcher({
+            ctx: inboundCtx,
+            cfg: ctx.cfg,
+            dispatcherOptions: {
+              deliver: async (payload: { text?: string }) => {
+                const text = payload.text;
+                if (!text) return;
+                try {
+                  await sphere.communications.sendDM(peerId, text);
+                } catch (err) {
+                  ctx.log?.error(`[${ctx.account.accountId}] Failed to send DM to ${peerId}: ${err}`);
+                }
+              },
+            },
+          })
+          .catch((err: unknown) => {
+            ctx.log?.error(`[${ctx.account.accountId}] Transfer notification dispatch error: ${err}`);
+          });
+      });
+
+      // Subscribe to incoming payment requests
+      const unsubPaymentRequest = sphere.on("payment_request:incoming", (request) => {
+        const peerId = request.senderNametag ? `@${request.senderNametag}` : request.senderPubkey.slice(0, 12) + "…";
+        const msg = request.message ? ` — "${request.message}"` : "";
+        const body = `[Payment request] ${peerId} is requesting ${request.amount} ${request.symbol}${msg} (request id: ${request.requestId})`;
+
+        ctx.log?.info(`[${ctx.account.accountId}] ${body}`);
+
+        const inboundCtx = runtime.channel.reply.finalizeInboundContext({
+          Body: body,
+          RawBody: body,
+          From: peerId,
+          To: sphere.identity?.nametag ?? sphere.identity?.publicKey ?? "agent",
+          SessionKey: `uniclaw:payreq:${request.requestId}`,
+          ChatType: "direct",
+          Surface: "uniclaw",
+          Provider: "uniclaw",
+          AccountId: ctx.account.accountId,
+          SenderName: request.senderNametag ?? request.senderPubkey.slice(0, 12),
+          SenderId: request.senderPubkey,
+          IsOwner: false,
+          CommandAuthorized: false,
+        });
+
+        runtime.channel.reply
+          .dispatchReplyWithBufferedBlockDispatcher({
+            ctx: inboundCtx,
+            cfg: ctx.cfg,
+            dispatcherOptions: {
+              deliver: async (payload: { text?: string }) => {
+                const text = payload.text;
+                if (!text) return;
+                try {
+                  await sphere.communications.sendDM(peerId, text);
+                } catch (err) {
+                  ctx.log?.error(`[${ctx.account.accountId}] Failed to send DM to ${peerId}: ${err}`);
+                }
+              },
+            },
+          })
+          .catch((err: unknown) => {
+            ctx.log?.error(`[${ctx.account.accountId}] Payment request dispatch error: ${err}`);
+          });
+      });
+
+      ctx.abortSignal.addEventListener("abort", () => {
+        unsub();
+        unsubTransfer();
+        unsubPaymentRequest();
+      }, { once: true });
 
       return {
         stop: () => {
           unsub();
+          unsubTransfer();
+          unsubPaymentRequest();
           ctx.log?.info(`[${ctx.account.accountId}] Unicity channel stopped`);
         },
       };
