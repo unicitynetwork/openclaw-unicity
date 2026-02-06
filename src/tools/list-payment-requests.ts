@@ -2,6 +2,7 @@
 
 import { Type } from "@sinclair/typebox";
 import { getSphere } from "../sphere.js";
+import { getCoinDecimals, getCoinSymbol, toHumanReadable } from "../assets.js";
 
 export const listPaymentRequestsTool = {
   name: "uniclaw_list_payment_requests",
@@ -41,8 +42,10 @@ export const listPaymentRequestsTool = {
       if (incoming.length > 0) {
         const lines = incoming.map((r) => {
           const from = r.senderNametag ? `@${r.senderNametag}` : r.senderPubkey.slice(0, 12) + "…";
+          const decimals = getCoinDecimals(r.coinId) ?? 0;
+          const amount = toHumanReadable(r.amount, decimals);
           const msg = r.message ? ` — "${r.message}"` : "";
-          return `  ${r.requestId.slice(0, 12)}… | ${r.amount} ${r.symbol} from ${from} | ${r.status}${msg}`;
+          return `  ${r.requestId.slice(0, 12)}… | ${amount} ${r.symbol} from ${from} | ${r.status}${msg}`;
         });
         sections.push(`Incoming (${incoming.length}):\n${lines.join("\n")}`);
       } else {
@@ -57,8 +60,11 @@ export const listPaymentRequestsTool = {
       if (outgoing.length > 0) {
         const lines = outgoing.map((r) => {
           const to = r.recipientNametag ? `@${r.recipientNametag}` : r.recipientPubkey.slice(0, 12) + "…";
+          const decimals = getCoinDecimals(r.coinId) ?? 0;
+          const amount = toHumanReadable(r.amount, decimals);
+          const symbol = getCoinSymbol(r.coinId);
           const msg = r.message ? ` — "${r.message}"` : "";
-          return `  ${r.id.slice(0, 12)}… | ${r.amount} ${r.coinId} to ${to} | ${r.status}${msg}`;
+          return `  ${r.id.slice(0, 12)}… | ${amount} ${symbol} to ${to} | ${r.status}${msg}`;
         });
         sections.push(`Outgoing (${outgoing.length}):\n${lines.join("\n")}`);
       } else {

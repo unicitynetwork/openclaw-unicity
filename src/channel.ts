@@ -4,6 +4,7 @@ import type { Sphere } from "@unicitylabs/sphere-sdk";
 import type { PluginRuntime, ChannelOnboardingAdapter } from "openclaw/plugin-sdk";
 import { waitForSphere, walletExists } from "./sphere.js";
 import { runInteractiveSetup } from "./setup.js";
+import { getCoinDecimals, toHumanReadable } from "./assets.js";
 
 const DEFAULT_ACCOUNT_ID = "default";
 
@@ -243,7 +244,11 @@ export const uniclawChannelPlugin = {
       // Subscribe to incoming token transfers
       const unsubTransfer = sphere.on("transfer:incoming", (transfer) => {
         const peerId = transfer.senderNametag ? `@${transfer.senderNametag}` : transfer.senderPubkey.slice(0, 12) + "…";
-        const totalAmount = transfer.tokens.map((t) => `${t.amount} ${t.symbol}`).join(", ");
+        const totalAmount = transfer.tokens.map((t) => {
+          const decimals = getCoinDecimals(t.coinId) ?? 0;
+          const amount = toHumanReadable(t.amount, decimals);
+          return `${amount} ${t.symbol}`;
+        }).join(", ");
         const memo = transfer.memo ? ` — "${transfer.memo}"` : "";
         const body = `[Payment received] ${totalAmount} from ${peerId}${memo}`;
 
@@ -289,8 +294,10 @@ export const uniclawChannelPlugin = {
       // Subscribe to incoming payment requests
       const unsubPaymentRequest = sphere.on("payment_request:incoming", (request) => {
         const peerId = request.senderNametag ? `@${request.senderNametag}` : request.senderPubkey.slice(0, 12) + "…";
+        const decimals = getCoinDecimals(request.coinId) ?? 0;
+        const amount = toHumanReadable(request.amount, decimals);
         const msg = request.message ? ` — "${request.message}"` : "";
-        const body = `[Payment request] ${peerId} is requesting ${request.amount} ${request.symbol}${msg} (request id: ${request.requestId})`;
+        const body = `[Payment request] ${peerId} is requesting ${amount} ${request.symbol}${msg} (request id: ${request.requestId})`;
 
         ctx.log?.info(`[${ctx.account.accountId}] ${body}`);
 

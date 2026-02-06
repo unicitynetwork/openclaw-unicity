@@ -90,3 +90,61 @@ export function getAvailableSymbols(): string[] {
   const registry = loadRegistry();
   return registry.availableSymbols;
 }
+
+// =============================================================================
+// Currency Conversion Utilities
+// =============================================================================
+
+/**
+ * Convert human-readable amount to smallest unit string
+ * @example toSmallestUnit("1.5", 18) => "1500000000000000000"
+ */
+export function toSmallestUnit(amount: number | string, decimals: number): string {
+  if (!amount) return "0";
+
+  const str = amount.toString();
+  const [integer, fraction = ""] = str.split(".");
+
+  // Pad fraction to exact decimal places, truncate if longer
+  const paddedFraction = fraction.padEnd(decimals, "0").slice(0, decimals);
+
+  // Remove leading zeros but keep at least one digit
+  const result = (integer + paddedFraction).replace(/^0+/, "") || "0";
+  return result;
+}
+
+/**
+ * Convert smallest unit string to human-readable amount
+ * @example toHumanReadable("1500000000000000000", 18) => "1.5"
+ */
+export function toHumanReadable(amount: string, decimals: number): string {
+  if (!amount || amount === "0") return "0";
+
+  const str = amount.padStart(decimals + 1, "0");
+  const integer = str.slice(0, -decimals) || "0";
+  const fraction = str.slice(-decimals).replace(/0+$/, "");
+
+  return fraction ? `${integer}.${fraction}` : integer;
+}
+
+/**
+ * Format amount for display with symbol
+ * @param amount Amount in smallest units
+ * @param coinName Faucet coin name (e.g., "unicity")
+ */
+export function formatAmount(amount: string, coinName: string): string {
+  const decimals = getCoinDecimals(coinName) ?? 0;
+  const symbol = getCoinSymbol(coinName);
+  const readable = toHumanReadable(amount, decimals);
+  return `${readable} ${symbol}`;
+}
+
+/**
+ * Parse user input amount to smallest units for a given coin
+ * @param amount Human-readable amount (e.g., "100" or "1.5")
+ * @param coinName Faucet coin name (e.g., "unicity")
+ */
+export function parseAmount(amount: number | string, coinName: string): string {
+  const decimals = getCoinDecimals(coinName) ?? 0;
+  return toSmallestUnit(amount, decimals);
+}

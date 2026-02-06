@@ -2,9 +2,16 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockGetTokens = vi.fn();
 const mockGetSphere = vi.fn();
+const mockGetCoinDecimals = vi.fn();
+const mockToHumanReadable = vi.fn();
 
 vi.mock("../../src/sphere.js", () => ({
   getSphere: () => mockGetSphere(),
+}));
+
+vi.mock("../../src/assets.js", () => ({
+  getCoinDecimals: (name: string) => mockGetCoinDecimals(name),
+  toHumanReadable: (amount: string, decimals: number) => mockToHumanReadable(amount, decimals),
 }));
 
 const { listTokensTool } = await import("../../src/tools/list-tokens.js");
@@ -15,6 +22,8 @@ describe("listTokensTool", () => {
     mockGetSphere.mockReturnValue({
       payments: { getTokens: mockGetTokens },
     });
+    mockGetCoinDecimals.mockReturnValue(0);
+    mockToHumanReadable.mockImplementation((amount: string) => amount);
   });
 
   it("has correct name and description", () => {

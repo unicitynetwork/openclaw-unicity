@@ -2,9 +2,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockGetBalance = vi.fn();
 const mockGetSphere = vi.fn();
+const mockToHumanReadable = vi.fn();
 
 vi.mock("../../src/sphere.js", () => ({
   getSphere: () => mockGetSphere(),
+}));
+
+vi.mock("../../src/assets.js", () => ({
+  toHumanReadable: (amount: string, decimals: number) => mockToHumanReadable(amount, decimals),
 }));
 
 const { getBalanceTool } = await import("../../src/tools/get-balance.js");
@@ -15,6 +20,7 @@ describe("getBalanceTool", () => {
     mockGetSphere.mockReturnValue({
       payments: { getBalance: mockGetBalance },
     });
+    mockToHumanReadable.mockImplementation((amount: string) => amount);
   });
 
   it("has correct name and description", () => {

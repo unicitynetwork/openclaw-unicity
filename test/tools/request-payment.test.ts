@@ -2,9 +2,20 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockSendPaymentRequest = vi.fn();
 const mockGetSphere = vi.fn();
+const mockResolveCoinId = vi.fn();
+const mockGetCoinSymbol = vi.fn();
+const mockGetCoinDecimals = vi.fn();
+const mockToSmallestUnit = vi.fn();
 
 vi.mock("../../src/sphere.js", () => ({
   getSphere: () => mockGetSphere(),
+}));
+
+vi.mock("../../src/assets.js", () => ({
+  resolveCoinId: (input: string) => mockResolveCoinId(input),
+  getCoinSymbol: (name: string) => mockGetCoinSymbol(name),
+  getCoinDecimals: (name: string) => mockGetCoinDecimals(name),
+  toSmallestUnit: (amount: number | string, decimals: number) => mockToSmallestUnit(amount, decimals),
 }));
 
 const { requestPaymentTool } = await import("../../src/tools/request-payment.js");
@@ -15,6 +26,10 @@ describe("requestPaymentTool", () => {
     mockGetSphere.mockReturnValue({
       payments: { sendPaymentRequest: mockSendPaymentRequest },
     });
+    mockResolveCoinId.mockReturnValue("unicity");
+    mockGetCoinSymbol.mockReturnValue("UCT");
+    mockGetCoinDecimals.mockReturnValue(18);
+    mockToSmallestUnit.mockReturnValue("50000000000000000000");
   });
 
   it("has correct name and description", () => {
@@ -27,18 +42,20 @@ describe("requestPaymentTool", () => {
 
     const result = await requestPaymentTool.execute("call-1", {
       recipient: "@alice",
-      amount: "50",
-      coinId: "ALPHA",
+      amount: 50,
+      coin: "UCT",
       message: "for the couch",
     });
 
+    expect(mockResolveCoinId).toHaveBeenCalledWith("UCT");
+    expect(mockToSmallestUnit).toHaveBeenCalledWith(50, 18);
     expect(mockSendPaymentRequest).toHaveBeenCalledWith("alice", {
-      amount: "50",
-      coinId: "ALPHA",
+      amount: "50000000000000000000",
+      coinId: "unicity",
       message: "for the couch",
     });
     expect(result.content[0].text).toContain("@alice");
-    expect(result.content[0].text).toContain("50 ALPHA");
+    expect(result.content[0].text).toContain("50 UCT");
     expect(result.content[0].text).toContain("req-42");
   });
 
@@ -47,8 +64,8 @@ describe("requestPaymentTool", () => {
 
     const result = await requestPaymentTool.execute("call-2", {
       recipient: "@unknown",
-      amount: "10",
-      coinId: "ALPHA",
+      amount: 10,
+      coin: "UCT",
     });
 
     expect(result.content[0].text).toContain("failed");
@@ -59,20 +76,32 @@ describe("requestPaymentTool", () => {
     await expect(
       requestPaymentTool.execute("call-3", {
         recipient: "not valid!",
-        amount: "10",
-        coinId: "ALPHA",
+        amount: 10,
+        coin: "UCT",
       }),
     ).rejects.toThrow("Invalid recipient format");
+  });
+
+  it("throws on unknown coin", async () => {
+    mockResolveCoinId.mockReturnValue(null);
+
+    await expect(
+      requestPaymentTool.execute("call-4", {
+        recipient: "@bob",
+        amount: 10,
+        coin: "FAKE",
+      }),
+    ).rejects.toThrow('Unknown coin "FAKE"');
   });
 
   it("propagates sendPaymentRequest errors", async () => {
     mockSendPaymentRequest.mockRejectedValue(new Error("relay error"));
 
     await expect(
-      requestPaymentTool.execute("call-4", {
+      requestPaymentTool.execute("call-5", {
         recipient: "@bob",
-        amount: "10",
-        coinId: "ALPHA",
+        amount: 10,
+        coin: "UCT",
       }),
     ).rejects.toThrow("relay error");
   });

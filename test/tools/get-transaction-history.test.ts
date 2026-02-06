@@ -2,9 +2,16 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockGetHistory = vi.fn();
 const mockGetSphere = vi.fn();
+const mockGetCoinDecimals = vi.fn();
+const mockToHumanReadable = vi.fn();
 
 vi.mock("../../src/sphere.js", () => ({
   getSphere: () => mockGetSphere(),
+}));
+
+vi.mock("../../src/assets.js", () => ({
+  getCoinDecimals: (name: string) => mockGetCoinDecimals(name),
+  toHumanReadable: (amount: string, decimals: number) => mockToHumanReadable(amount, decimals),
 }));
 
 const { getTransactionHistoryTool } = await import("../../src/tools/get-transaction-history.js");
@@ -15,6 +22,8 @@ describe("getTransactionHistoryTool", () => {
     mockGetSphere.mockReturnValue({
       payments: { getHistory: mockGetHistory },
     });
+    mockGetCoinDecimals.mockReturnValue(0);
+    mockToHumanReadable.mockImplementation((amount: string) => amount);
   });
 
   it("has correct name and description", () => {

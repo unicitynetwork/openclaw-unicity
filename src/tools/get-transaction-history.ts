@@ -2,6 +2,7 @@
 
 import { Type } from "@sinclair/typebox";
 import { getSphere } from "../sphere.js";
+import { getCoinDecimals, toHumanReadable } from "../assets.js";
 
 export const getTransactionHistoryTool = {
   name: "uniclaw_get_transaction_history",
@@ -24,12 +25,14 @@ export const getTransactionHistoryTool = {
 
     const lines = limited.map((e) => {
       const time = new Date(e.timestamp).toISOString();
+      const decimals = getCoinDecimals(e.coinId) ?? 0;
+      const amount = toHumanReadable(e.amount, decimals);
       const peer = e.type === "SENT" && e.recipientNametag
         ? ` to @${e.recipientNametag}`
         : e.type === "RECEIVED" && e.senderPubkey
           ? ` from ${e.senderPubkey.slice(0, 12)}…`
           : "";
-      return `[${time}] ${e.type} ${e.amount} ${e.symbol}${peer}`;
+      return `[${time}] ${e.type} ${amount} ${e.symbol}${peer}`;
     });
 
     return {

@@ -3,9 +3,18 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mockGetPaymentRequests = vi.fn();
 const mockGetOutgoingPaymentRequests = vi.fn();
 const mockGetSphere = vi.fn();
+const mockGetCoinDecimals = vi.fn();
+const mockGetCoinSymbol = vi.fn();
+const mockToHumanReadable = vi.fn();
 
 vi.mock("../../src/sphere.js", () => ({
   getSphere: () => mockGetSphere(),
+}));
+
+vi.mock("../../src/assets.js", () => ({
+  getCoinDecimals: (name: string) => mockGetCoinDecimals(name),
+  getCoinSymbol: (name: string) => mockGetCoinSymbol(name),
+  toHumanReadable: (amount: string, decimals: number) => mockToHumanReadable(amount, decimals),
 }));
 
 const { listPaymentRequestsTool } = await import("../../src/tools/list-payment-requests.js");
@@ -19,6 +28,9 @@ describe("listPaymentRequestsTool", () => {
         getOutgoingPaymentRequests: mockGetOutgoingPaymentRequests,
       },
     });
+    mockGetCoinDecimals.mockReturnValue(0);
+    mockGetCoinSymbol.mockImplementation((name: string) => name.toUpperCase());
+    mockToHumanReadable.mockImplementation((amount: string) => amount);
   });
 
   it("has correct name and description", () => {

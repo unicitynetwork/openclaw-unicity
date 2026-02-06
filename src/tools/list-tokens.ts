@@ -2,6 +2,7 @@
 
 import { Type } from "@sinclair/typebox";
 import { getSphere } from "../sphere.js";
+import { getCoinDecimals, toHumanReadable } from "../assets.js";
 
 export const listTokensTool = {
   name: "uniclaw_list_tokens",
@@ -32,9 +33,11 @@ export const listTokensTool = {
       };
     }
 
-    const lines = tokens.map(
-      (t) => `${t.id.slice(0, 12)}… | ${t.amount} ${t.symbol} | ${t.status} | ${new Date(t.createdAt).toISOString()}`,
-    );
+    const lines = tokens.map((t) => {
+      const decimals = getCoinDecimals(t.coinId) ?? 0;
+      const amount = toHumanReadable(t.amount, decimals);
+      return `${t.id.slice(0, 12)}… | ${amount} ${t.symbol} | ${t.status} | ${new Date(t.createdAt).toISOString()}`;
+    });
 
     return {
       content: [
