@@ -117,7 +117,7 @@ describe("config helpers", () => {
 
   it("resolveUnicityAccount with sphere is configured", () => {
     const fakeSphere = {
-      identity: { publicKey: "abc123", nametag: "@bot", address: "alpha1bot" },
+      identity: { chainPubkey: "abc123", nametag: "@bot", l1Address: "alpha1bot" },
     } as any;
     const account = resolveUnicityAccount({ cfg: {}, sphere: fakeSphere });
     expect(account.configured).toBe(true);
@@ -139,7 +139,7 @@ describe("outbound.sendText", () => {
   it("sends DM via sphere and returns channel/to", async () => {
     const mockSendDM = vi.fn().mockResolvedValue({ id: "dm-1" });
     setActiveSphere({
-      identity: { publicKey: "pk", nametag: "@bot" },
+      identity: { chainPubkey: "pk", nametag: "@bot" },
       communications: { sendDM: mockSendDM },
     } as any);
 
@@ -166,7 +166,7 @@ describe("gateway.startAccount", () => {
     dmHandler = null;
 
     mockSphere = {
-      identity: { publicKey: "abc123def456", nametag: "@test-agent", address: "alpha1test" },
+      identity: { chainPubkey: "abc123def456", nametag: "@test-agent", l1Address: "alpha1test" },
       communications: {
         onDirectMessage: vi.fn((handler: any) => {
           dmHandler = handler;

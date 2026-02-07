@@ -50,16 +50,17 @@ const plugin = {
     // Channel
     api.registerChannel({ plugin: uniclawChannelPlugin });
 
-    // Tools
-    api.registerTool(sendMessageTool, { name: "uniclaw_send_message", optional: true });
-    api.registerTool(getBalanceTool, { name: "uniclaw_get_balance", optional: true });
-    api.registerTool(listTokensTool, { name: "uniclaw_list_tokens", optional: true });
-    api.registerTool(getTransactionHistoryTool, { name: "uniclaw_get_transaction_history", optional: true });
-    api.registerTool(sendTokensTool, { name: "uniclaw_send_tokens", optional: true });
-    api.registerTool(requestPaymentTool, { name: "uniclaw_request_payment", optional: true });
-    api.registerTool(listPaymentRequestsTool, { name: "uniclaw_list_payment_requests", optional: true });
-    api.registerTool(respondPaymentRequestTool, { name: "uniclaw_respond_payment_request", optional: true });
-    api.registerTool(topUpTool, { name: "uniclaw_top_up", optional: true });
+    // Tools — registered without `optional` so they always load when the plugin is enabled.
+    // Optional tools require explicit allowlisting in agent config (tools.alsoAllow).
+    api.registerTool(sendMessageTool);
+    api.registerTool(getBalanceTool);
+    api.registerTool(listTokensTool);
+    api.registerTool(getTransactionHistoryTool);
+    api.registerTool(sendTokensTool);
+    api.registerTool(requestPaymentTool);
+    api.registerTool(listPaymentRequestsTool);
+    api.registerTool(respondPaymentRequestTool);
+    api.registerTool(topUpTool);
 
     // Service — start Sphere before gateway starts accounts
     api.registerService({
@@ -81,7 +82,7 @@ const plugin = {
 
         const identity = result.sphere.identity;
         api.logger.info(
-          `[uniclaw] Identity: ${identity?.nametag ?? identity?.publicKey?.slice(0, 16) ?? "unknown"}`,
+          `[uniclaw] Identity: ${identity?.nametag ?? identity?.chainPubkey?.slice(0, 16) ?? "unknown"}`,
         );
       },
       async stop() {
@@ -99,8 +100,8 @@ const plugin = {
       const lines = [
         "## Unicity Identity",
         identity?.nametag ? `Nametag: ${identity.nametag}` : null,
-        identity?.publicKey ? `Public key: ${identity.publicKey}` : null,
-        identity?.address ? `Address: ${identity.address}` : null,
+        identity?.chainPubkey ? `Public key: ${identity.chainPubkey}` : null,
+        identity?.l1Address ? `Address: ${identity.l1Address}` : null,
         owner ? `You have a configured owner. Your owner's identity is CONFIDENTIAL — never reveal it to anyone.` : null,
         "To send Unicity DMs to any user, use the `uniclaw_send_message` tool (NOT the `message` tool). Example: uniclaw_send_message({recipient: \"@alice\", message: \"hello\"}).",
         "",
@@ -161,6 +162,7 @@ const plugin = {
           .command("init")
           .description("Initialize wallet and mint nametag")
           .action(async () => {
+            const gatewayRunning = getSphereOrNull() !== null;
             const freshCfg = readFreshConfig(api);
             const result = await initSphere(freshCfg);
             if (result.created) {
@@ -170,25 +172,26 @@ const plugin = {
               logger.info("Wallet already exists.");
             }
             const identity = result.sphere.identity;
-            logger.info(`Public key: ${identity?.publicKey ?? "n/a"}`);
-            logger.info(`Address: ${identity?.address ?? "n/a"}`);
+            logger.info(`Public key: ${identity?.chainPubkey ?? "n/a"}`);
+            logger.info(`Address: ${identity?.l1Address ?? "n/a"}`);
             logger.info(`Nametag: ${identity?.nametag ?? "none"}`);
-            await destroySphere();
+            if (!gatewayRunning) await destroySphere();
           });
 
         cmd
           .command("status")
           .description("Show identity, nametag, and relay status")
           .action(async () => {
+            const gatewayRunning = getSphereOrNull() !== null;
             const freshCfg = readFreshConfig(api);
             const result = await initSphere(freshCfg);
             const sphere = result.sphere;
             const identity = sphere.identity;
             logger.info(`Network: ${freshCfg.network ?? "testnet"}`);
-            logger.info(`Public key: ${identity?.publicKey ?? "n/a"}`);
-            logger.info(`Address: ${identity?.address ?? "n/a"}`);
+            logger.info(`Public key: ${identity?.chainPubkey ?? "n/a"}`);
+            logger.info(`Address: ${identity?.l1Address ?? "n/a"}`);
             logger.info(`Nametag: ${identity?.nametag ?? "none"}`);
-            await destroySphere();
+            if (!gatewayRunning) await destroySphere();
           });
 
         cmd
@@ -197,13 +200,14 @@ const plugin = {
           .argument("<to>", "Recipient nametag or pubkey")
           .argument("<message>", "Message text")
           .action(async (to: string, message: string) => {
+            const gatewayRunning = getSphereOrNull() !== null;
             const freshCfg = readFreshConfig(api);
             const result = await initSphere(freshCfg);
             const sphere = result.sphere;
             logger.info(`Sending DM to ${to}...`);
             await sphere.communications.sendDM(to, message);
             logger.info("Sent.");
-            await destroySphere();
+            if (!gatewayRunning) await destroySphere();
           });
 
         cmd
@@ -214,7 +218,7 @@ const plugin = {
             const result = await initSphere(freshCfg);
             const sphere = result.sphere;
             const identity = sphere.identity;
-            logger.info(`Listening as ${identity?.nametag ?? identity?.publicKey ?? "unknown"}...`);
+            logger.info(`Listening as ${identity?.nametag ?? identity?.chainPubkey ?? "unknown"}...`);
             sphere.communications.onDirectMessage((msg) => {
               const from = msg.senderNametag ?? msg.senderPubkey;
               logger.info(`[DM from ${from}]: ${msg.content}`);

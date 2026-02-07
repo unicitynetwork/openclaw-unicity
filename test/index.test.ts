@@ -2,7 +2,9 @@ import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 
 // Mock all heavy dependencies
 const mockSphereInit = vi.fn();
-const mockExistsSync = vi.fn().mockReturnValue(true);
+const mockExistsSync = vi.fn().mockImplementation((p: string) =>
+  p.endsWith("mnemonic.txt") ? false : true,
+);
 vi.mock("@unicitylabs/sphere-sdk", () => ({
   Sphere: { init: mockSphereInit },
 }));
@@ -11,7 +13,13 @@ vi.mock("@unicitylabs/sphere-sdk/impl/nodejs", () => ({
 }));
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
-  return { ...actual, mkdirSync: vi.fn(), writeFileSync: vi.fn(), existsSync: mockExistsSync };
+  return {
+    ...actual,
+    mkdirSync: vi.fn(),
+    writeFileSync: vi.fn(),
+    readFileSync: vi.fn().mockReturnValue("word1 word2 word3\n"),
+    existsSync: mockExistsSync,
+  };
 });
 // Mock fetch for trustbase download
 vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, text: () => Promise.resolve("{}") }));
@@ -43,7 +51,9 @@ function makeApi(overrides?: { runtimeConfig?: Record<string, unknown> }) {
 describe("plugin definition", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockExistsSync.mockReturnValue(true);
+    mockExistsSync.mockImplementation((p: string) =>
+      p.endsWith("mnemonic.txt") ? false : true,
+    );
   });
 
   afterEach(async () => {
@@ -64,15 +74,12 @@ describe("plugin definition", () => {
     expect(api.registerTool).toHaveBeenCalledTimes(9);
     expect(api.registerTool).toHaveBeenCalledWith(
       expect.objectContaining({ name: "uniclaw_send_message" }),
-      expect.objectContaining({ name: "uniclaw_send_message", optional: true }),
     );
     expect(api.registerTool).toHaveBeenCalledWith(
       expect.objectContaining({ name: "uniclaw_get_balance" }),
-      expect.objectContaining({ name: "uniclaw_get_balance", optional: true }),
     );
     expect(api.registerTool).toHaveBeenCalledWith(
       expect.objectContaining({ name: "uniclaw_send_tokens" }),
-      expect.objectContaining({ name: "uniclaw_send_tokens", optional: true }),
     );
     expect(api.registerService).toHaveBeenCalledWith(
       expect.objectContaining({ id: "uniclaw" }),
@@ -99,7 +106,7 @@ describe("plugin definition", () => {
 
   it("before_agent_start hook returns prependContext when sphere is initialized", async () => {
     const fakeSphere = {
-      identity: { publicKey: "abc123", nametag: "@mybot", address: "alpha1bot" },
+      identity: { chainPubkey: "abc123", nametag: "@mybot", l1Address: "alpha1bot" },
       registerNametag: vi.fn(),
       destroy: vi.fn(),
     };
@@ -130,7 +137,7 @@ describe("plugin definition", () => {
 
   it("service start reads fresh config from runtime", async () => {
     const fakeSphere = {
-      identity: { publicKey: "abc123", nametag: "@mybot", address: "alpha1bot" },
+      identity: { chainPubkey: "abc123", nametag: "@mybot", l1Address: "alpha1bot" },
       registerNametag: vi.fn(),
       destroy: vi.fn(),
       communications: { sendDM: vi.fn() },
@@ -166,7 +173,7 @@ describe("plugin definition", () => {
 
   it("before_agent_start hook includes owner trust instruction when owner configured", async () => {
     const fakeSphere = {
-      identity: { publicKey: "abc123", nametag: "@mybot", address: "alpha1bot" },
+      identity: { chainPubkey: "abc123", nametag: "@mybot", l1Address: "alpha1bot" },
       registerNametag: vi.fn(),
       destroy: vi.fn(),
     };

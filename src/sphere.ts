@@ -2,7 +2,7 @@
 
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { Sphere } from "@unicitylabs/sphere-sdk";
 import { createNodeProviders } from "@unicitylabs/sphere-sdk/impl/nodejs";
 import type { UniclawConfig } from "./config.js";
@@ -110,9 +110,16 @@ async function doInitSphere(
     },
   });
 
+  // If a mnemonic backup exists, pass it so the SDK restores the same wallet
+  // even if its internal storage was lost. Without this, autoGenerate would
+  // create a brand-new wallet with a different mnemonic.
+  const existingMnemonic = existsSync(MNEMONIC_PATH)
+    ? readFileSync(MNEMONIC_PATH, "utf-8").trim()
+    : undefined;
+
   const result = await Sphere.init({
     ...providers,
-    autoGenerate: true,
+    ...(existingMnemonic ? { mnemonic: existingMnemonic } : { autoGenerate: true }),
     ...(cfg.nametag ? { nametag: cfg.nametag } : {}),
   });
 
@@ -130,26 +137,27 @@ async function doInitSphere(
     log.warn("[uniclaw] Wallet created without nametag. Run 'openclaw uniclaw setup' to configure.");
   }
 
-  if (cfg.nametag && result.sphere.identity?.nametag && cfg.nametag !== result.sphere.identity.nametag) {
-    const log = logger ?? console;
-    log.warn(
-      `[uniclaw] Config nametag '${cfg.nametag}' differs from wallet nametag '${result.sphere.identity.nametag}'. Wallet nametag is used.`,
-    );
-  }
-
-  // Mint nametag only when the wallet doesn't already have one
-  if (cfg.nametag && !result.sphere.identity?.nametag) {
+  // Register nametag if configured and wallet doesn't have one yet
+  const walletNametag = result.sphere.identity?.nametag;
+  if (cfg.nametag && !walletNametag) {
     try {
       await result.sphere.registerNametag(cfg.nametag);
+      const log = logger ?? console;
+      log.info(`[uniclaw] Nametag '${cfg.nametag}' registered successfully.`);
     } catch (err) {
-      // Non-fatal; nametag may already be taken by someone else
-      const msg = `[uniclaw] Failed to mint nametag "${cfg.nametag}": ${err}`;
+      // Non-fatal; nametag may already be taken
+      const msg = `[uniclaw] Failed to register nametag "${cfg.nametag}": ${err}`;
       if (logger) {
         logger.warn(msg);
       } else {
         console.warn(msg);
       }
     }
+  } else if (cfg.nametag && walletNametag && cfg.nametag !== walletNametag) {
+    const log = logger ?? console;
+    log.warn(
+      `[uniclaw] Config nametag '${cfg.nametag}' differs from wallet nametag '${walletNametag}'. Wallet nametag is used. To change nametag, create a new wallet.`,
+    );
   }
 
   // Send greeting DM to owner on first wallet creation

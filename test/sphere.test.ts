@@ -7,6 +7,7 @@ const mockRegisterNametag = vi.fn();
 const mockDestroy = vi.fn();
 const mockMkdirSync = vi.fn();
 const mockWriteFileSync = vi.fn();
+const mockReadFileSync = vi.fn();
 const mockExistsSync = vi.fn();
 
 vi.mock("@unicitylabs/sphere-sdk", () => ({
@@ -19,7 +20,7 @@ vi.mock("@unicitylabs/sphere-sdk/impl/nodejs", () => ({
 
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
-  return { ...actual, mkdirSync: mockMkdirSync, writeFileSync: mockWriteFileSync, existsSync: mockExistsSync };
+  return { ...actual, mkdirSync: mockMkdirSync, writeFileSync: mockWriteFileSync, readFileSync: mockReadFileSync, existsSync: mockExistsSync };
 });
 
 // Mock global fetch for trustbase download
@@ -33,9 +34,9 @@ const { initSphere, getSphere, getSphereOrNull, destroySphere, waitForSphere, MN
 describe("sphere", () => {
   const fakeSphere = {
     identity: {
-      publicKey: "abc123",
+      chainPubkey: "abc123",
       nametag: "@agent",
-      address: "alpha1agent",
+      l1Address: "alpha1agent",
     },
     registerNametag: mockRegisterNametag,
     destroy: mockDestroy,
@@ -44,9 +45,9 @@ describe("sphere", () => {
   // Sphere with no nametag yet — used for mint tests
   const fakeSphereNoNametag = {
     identity: {
-      publicKey: "abc123",
+      chainPubkey: "abc123",
       nametag: undefined,
-      address: "alpha1agent",
+      l1Address: "alpha1agent",
     },
     registerNametag: mockRegisterNametag,
     destroy: mockDestroy,
@@ -60,8 +61,12 @@ describe("sphere", () => {
       oracle: {},
       tokenStorage: {},
     });
-    // Default: trustbase file exists, no download needed
-    mockExistsSync.mockReturnValue(true);
+    // Default: trustbase exists, mnemonic does not (simulating fresh wallet)
+    mockExistsSync.mockImplementation((p: string) =>
+      p.endsWith("mnemonic.txt") ? false : true,
+    );
+    // If readFileSync is called for mnemonic, return a dummy phrase
+    mockReadFileSync.mockReturnValue("word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12\n");
     // Mock fetch for trustbase download (in case existsSync returns false)
     mockFetch.mockResolvedValue({
       ok: true,
@@ -169,9 +174,29 @@ describe("sphere", () => {
     expect(mockRegisterNametag).toHaveBeenCalledWith("mybot");
   });
 
-  it("skips minting when wallet already has a nametag", async () => {
+  it("warns when config nametag differs from wallet nametag (no re-registration)", async () => {
     mockSphereInit.mockResolvedValue({
       sphere: fakeSphere, // has nametag: "@agent"
+      created: false,
+    });
+    const logger = { info: vi.fn(), warn: vi.fn() };
+
+    await initSphere({ network: "testnet", nametag: "mybot" }, logger);
+
+    // Should NOT attempt registration — SDK doesn't allow changing nametags
+    expect(mockRegisterNametag).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining("Config nametag 'mybot' differs from wallet nametag '@agent'"),
+    );
+  });
+
+  it("skips registration when config nametag matches wallet nametag", async () => {
+    const sphereWithMatchingTag = {
+      ...fakeSphere,
+      identity: { ...fakeSphere.identity, nametag: "mybot" },
+    };
+    mockSphereInit.mockResolvedValue({
+      sphere: sphereWithMatchingTag,
       created: false,
     });
 
@@ -217,7 +242,7 @@ describe("sphere", () => {
     await initSphere({ network: "testnet", nametag: "taken-name" }, logger);
 
     expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('Failed to mint nametag "taken-name"'),
+      expect.stringContaining('Failed to register nametag "taken-name"'),
     );
   });
 

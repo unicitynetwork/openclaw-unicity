@@ -25,7 +25,7 @@ describe("topUpTool", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetSphere.mockReturnValue({
-      identity: { nametag: "@testbot", publicKey: "abc123" },
+      identity: { nametag: "@testbot", chainPubkey: "abc123" },
     });
     mockGetAvailableSymbols.mockReturnValue(["UCT", "BTC", "SOL", "ETH"]);
     mockGetCoinSymbol.mockImplementation((name: string) => {
@@ -134,7 +134,7 @@ describe("topUpTool", () => {
 
   it("throws when wallet has no nametag", async () => {
     mockGetSphere.mockReturnValue({
-      identity: { publicKey: "abc123" },
+      identity: { chainPubkey: "abc123" },
     });
 
     await expect(

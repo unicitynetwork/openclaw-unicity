@@ -62,8 +62,8 @@ export function resolveUnicityAccount(opts: {
     accountId,
     name: ucfg?.name?.trim() || undefined,
     enabled,
-    configured: sphere?.identity?.publicKey != null,
-    publicKey: sphere?.identity?.publicKey ?? "",
+    configured: sphere?.identity?.chainPubkey != null,
+    publicKey: sphere?.identity?.chainPubkey ?? "",
     nametag: sphere?.identity?.nametag ?? ucfg?.nametag,
     config: ucfg ?? {},
   };
@@ -184,17 +184,17 @@ export const uniclawChannelPlugin = {
 
       ctx.setStatus({
         accountId: ctx.account.accountId,
-        publicKey: sphere.identity?.publicKey,
+        publicKey: sphere.identity?.chainPubkey,
         nametag: sphere.identity?.nametag,
         running: true,
         lastStartAt: Date.now(),
       });
 
       ctx.log?.info(
-        `[${ctx.account.accountId}] Starting Unicity channel (nametag: ${sphere.identity?.nametag ?? "none"}, pubkey: ${sphere.identity?.publicKey?.slice(0, 16)}...)`,
+        `[${ctx.account.accountId}] Starting Unicity channel (nametag: ${sphere.identity?.nametag ?? "none"}, pubkey: ${sphere.identity?.chainPubkey?.slice(0, 16)}...)`,
       );
 
-      ctx.log?.info(`[${ctx.account.accountId}] Subscribing to DMs (pubkey: ${sphere.identity?.publicKey?.slice(0, 16)}...)`);
+      ctx.log?.info(`[${ctx.account.accountId}] Subscribing to DMs (pubkey: ${sphere.identity?.chainPubkey?.slice(0, 16)}...)`);
 
       const unsub = sphere.communications.onDirectMessage((msg) => {
         // Use @nametag if available, otherwise raw pubkey
@@ -207,7 +207,7 @@ export const uniclawChannelPlugin = {
           Body: msg.content,
           RawBody: msg.content,
           From: peerId,
-          To: sphere.identity?.nametag ?? sphere.identity?.publicKey ?? "agent",
+          To: sphere.identity?.nametag ?? sphere.identity?.chainPubkey ?? "agent",
           SessionKey: `uniclaw:dm:${peerId}`,
           ChatType: "direct",
           Surface: "uniclaw",
@@ -244,28 +244,38 @@ export const uniclawChannelPlugin = {
 
       // Subscribe to incoming token transfers
       const unsubTransfer = sphere.on("transfer:incoming", (transfer) => {
-        const peerId = transfer.senderNametag ? `@${transfer.senderNametag}` : transfer.senderPubkey.slice(0, 12) + "…";
+        // Full address for DM replies; short form for display/logging only
+        const replyTo = transfer.senderNametag ? `@${transfer.senderNametag}` : transfer.senderPubkey;
+        const displayName = transfer.senderNametag ? `@${transfer.senderNametag}` : transfer.senderPubkey.slice(0, 12) + "…";
         const totalAmount = transfer.tokens.map((t) => {
           const decimals = getCoinDecimals(t.coinId) ?? 0;
           const amount = toHumanReadable(t.amount, decimals);
           return `${amount} ${t.symbol}`;
         }).join(", ");
         const memo = transfer.memo ? ` — "${transfer.memo}"` : "";
-        const body = `[Payment received] ${totalAmount} from ${peerId}${memo}`;
+        const body = `[Payment received] ${totalAmount} from ${displayName}${memo}`;
 
         ctx.log?.info(`[${ctx.account.accountId}] ${body}`);
+
+        // Notify owner about the incoming transfer
+        const owner = getOwnerIdentity();
+        if (owner) {
+          sphere.communications.sendDM(`@${owner}`, body).catch((err) => {
+            ctx.log?.error(`[${ctx.account.accountId}] Failed to notify owner about transfer: ${err}`);
+          });
+        }
 
         const inboundCtx = runtime.channel.reply.finalizeInboundContext({
           Body: body,
           RawBody: body,
-          From: peerId,
-          To: sphere.identity?.nametag ?? sphere.identity?.publicKey ?? "agent",
+          From: replyTo,
+          To: sphere.identity?.nametag ?? sphere.identity?.chainPubkey ?? "agent",
           SessionKey: `uniclaw:transfer:${transfer.id}`,
           ChatType: "direct",
           Surface: "uniclaw",
           Provider: "uniclaw",
           AccountId: ctx.account.accountId,
-          SenderName: transfer.senderNametag ?? transfer.senderPubkey.slice(0, 12),
+          SenderName: displayName,
           SenderId: transfer.senderPubkey,
           IsOwner: false,
           CommandAuthorized: false,
@@ -280,9 +290,9 @@ export const uniclawChannelPlugin = {
                 const text = payload.text;
                 if (!text) return;
                 try {
-                  await sphere.communications.sendDM(peerId, text);
+                  await sphere.communications.sendDM(replyTo, text);
                 } catch (err) {
-                  ctx.log?.error(`[${ctx.account.accountId}] Failed to send DM to ${peerId}: ${err}`);
+                  ctx.log?.error(`[${ctx.account.accountId}] Failed to send DM to ${displayName}: ${err}`);
                 }
               },
             },
@@ -294,25 +304,34 @@ export const uniclawChannelPlugin = {
 
       // Subscribe to incoming payment requests
       const unsubPaymentRequest = sphere.on("payment_request:incoming", (request) => {
-        const peerId = request.senderNametag ? `@${request.senderNametag}` : request.senderPubkey.slice(0, 12) + "…";
+        const replyTo = request.senderNametag ? `@${request.senderNametag}` : request.senderPubkey;
+        const displayName = request.senderNametag ? `@${request.senderNametag}` : request.senderPubkey.slice(0, 12) + "…";
         const decimals = getCoinDecimals(request.coinId) ?? 0;
         const amount = toHumanReadable(request.amount, decimals);
         const msg = request.message ? ` — "${request.message}"` : "";
-        const body = `[Payment request] ${peerId} is requesting ${amount} ${request.symbol}${msg} (request id: ${request.requestId})`;
+        const body = `[Payment request] ${displayName} is requesting ${amount} ${request.symbol}${msg} (request id: ${request.requestId})`;
 
         ctx.log?.info(`[${ctx.account.accountId}] ${body}`);
+
+        // Notify owner about the incoming payment request
+        const owner = getOwnerIdentity();
+        if (owner) {
+          sphere.communications.sendDM(`@${owner}`, body).catch((err) => {
+            ctx.log?.error(`[${ctx.account.accountId}] Failed to notify owner about payment request: ${err}`);
+          });
+        }
 
         const inboundCtx = runtime.channel.reply.finalizeInboundContext({
           Body: body,
           RawBody: body,
-          From: peerId,
-          To: sphere.identity?.nametag ?? sphere.identity?.publicKey ?? "agent",
+          From: replyTo,
+          To: sphere.identity?.nametag ?? sphere.identity?.chainPubkey ?? "agent",
           SessionKey: `uniclaw:payreq:${request.requestId}`,
           ChatType: "direct",
           Surface: "uniclaw",
           Provider: "uniclaw",
           AccountId: ctx.account.accountId,
-          SenderName: request.senderNametag ?? request.senderPubkey.slice(0, 12),
+          SenderName: displayName,
           SenderId: request.senderPubkey,
           IsOwner: false,
           CommandAuthorized: false,
@@ -327,9 +346,9 @@ export const uniclawChannelPlugin = {
                 const text = payload.text;
                 if (!text) return;
                 try {
-                  await sphere.communications.sendDM(peerId, text);
+                  await sphere.communications.sendDM(replyTo, text);
                 } catch (err) {
-                  ctx.log?.error(`[${ctx.account.accountId}] Failed to send DM to ${peerId}: ${err}`);
+                  ctx.log?.error(`[${ctx.account.accountId}] Failed to send DM to ${displayName}: ${err}`);
                 }
               },
             },
