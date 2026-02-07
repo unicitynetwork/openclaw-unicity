@@ -39,8 +39,8 @@ jobs:
       - name: Pack tarball
         run: npm pack
 
-      - name: Publish to npm
-        run: npm publish --access public
+      - name: Publish to npm (trusted publisher via OIDC)
+        run: npm publish --access public --provenance
 
       - name: Commit version bump and tag
         run: |
