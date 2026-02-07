@@ -50,9 +50,10 @@ function loadRegistry(): AssetRegistry {
     const name = entry.name;
     const symbol = entry.symbol;
 
-    // Map both name and symbol (lowercase) to the faucet coin name
+    // Map name, symbol (lowercase), and coin id to the faucet coin name
     aliases.set(name.toLowerCase(), name);
     aliases.set(symbol.toLowerCase(), name);
+    aliases.set(entry.id, name);
 
     // Store display symbol and decimals
     symbols.set(name, symbol);
