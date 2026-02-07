@@ -18,7 +18,10 @@
 - **Wallet identity** — Auto-generates a Unicity wallet on first run (BIP-32 HD wallet with mnemonic backup)
 - **Nametag minting** — Register a human-readable `@nametag` for your agent on the Unicity network
 - **Encrypted DMs** — Send and receive direct messages over Unicity's private Nostr relays
-- **Agent tool** — `uniclaw_send_message` tool lets the agent send DMs on behalf of the user
+- **Token management** — Send/receive tokens, check balances, view transaction history
+- **Payment requests** — Request payments from other users, accept/reject/pay incoming requests
+- **Faucet top-up** — Request test tokens on testnet via built-in faucet tool
+- **Agent tools** — 9 tools for messaging, wallet operations, and payments (see [Agent Tools](#agent-tools))
 - **OpenClaw channel** — Full channel plugin with inbound/outbound message handling, status reporting, and DM access control
 - **Interactive setup** — `openclaw uniclaw setup` wizard and `openclaw onboard` integration
 - **CLI commands** — `openclaw uniclaw init`, `status`, `send`, and `listen` for wallet management
@@ -125,17 +128,49 @@ openclaw uniclaw status
 
 Shows network, public key, address, and nametag.
 
-### Send a message (via agent)
+## Agent Tools
 
-Once the plugin is loaded, the agent has access to the `uniclaw_send_message` tool:
+Once the plugin is loaded, the agent has access to the following tools:
+
+### Messaging
+
+| Tool | Description |
+|------|-------------|
+| `uniclaw_send_message` | Send an encrypted DM to a nametag or public key |
+
+### Wallet & Balances
+
+| Tool | Description |
+|------|-------------|
+| `uniclaw_get_balance` | Check token balances (optionally filtered by coin) |
+| `uniclaw_list_tokens` | List individual tokens with status and creation time |
+| `uniclaw_get_transaction_history` | View recent transactions (sent/received) |
+
+### Transfers & Payments
+
+| Tool | Description |
+|------|-------------|
+| `uniclaw_send_tokens` | Transfer tokens to a recipient (requires owner instruction) |
+| `uniclaw_request_payment` | Send a payment request to another user |
+| `uniclaw_list_payment_requests` | View incoming/outgoing payment requests |
+| `uniclaw_respond_payment_request` | Pay, accept, or reject a payment request |
+| `uniclaw_top_up` | Request test tokens from the faucet (testnet only) |
+
+Recipients can be specified as a `@nametag` or a 64-character hex public key.
+
+**Examples:**
 
 > "Send a message to @alice saying hello"
-
-The agent will use the tool to deliver an encrypted DM over the Unicity network.
+>
+> "What's my balance?"
+>
+> "Send 100 UCT to @bob for the pizza"
+>
+> "Top up 50 USDU from the faucet"
 
 ### Receive messages
 
-When the gateway is running, incoming DMs are automatically routed to the agent's reply pipeline. The agent receives the message, processes it, and replies are delivered back as encrypted DMs.
+When the gateway is running, incoming DMs, token transfers, and payment requests are automatically routed to the agent's reply pipeline. The agent receives the event, processes it, and replies are delivered back as encrypted DMs.
 
 ## Architecture
 
@@ -157,9 +192,9 @@ When the gateway is running, incoming DMs are automatically routed to the agent'
 ```
 
 - **Plugin service** starts the Sphere SDK, creates/loads the wallet, and connects to Unicity relays
-- **Gateway adapter** listens for inbound DMs and dispatches them through OpenClaw's reply pipeline
+- **Gateway adapter** listens for inbound DMs, token transfers, and payment requests, dispatching them through OpenClaw's reply pipeline
 - **Outbound adapter** delivers agent replies as encrypted DMs
-- **Agent tool** (`uniclaw_send_message`) allows the agent to initiate conversations
+- **Agent tools** (9 tools) allow the agent to send messages, manage tokens, and handle payments
 
 ## Data Storage
 
@@ -168,6 +203,14 @@ When the gateway is running, incoming DMs are automatically routed to the agent'
 | `~/.openclaw/unicity/` | Wallet data (keys, state) |
 | `~/.openclaw/unicity/mnemonic.txt` | Mnemonic backup (mode 0600) |
 | `~/.openclaw/unicity/tokens/` | Token storage |
+| `~/.openclaw/unicity/trustbase.json` | Cached BFT trustbase (auto-downloaded) |
+
+## Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `UNICLAW_TRUSTBASE_URL` | Override the BFT trustbase download URL | GitHub raw URL |
+| `UNICLAW_FAUCET_URL` | Override the faucet API endpoint | `https://faucet.unicity.network/api/v1/faucet/request` |
 
 ## Development
 
@@ -180,6 +223,12 @@ npm test
 
 # Run tests in watch mode
 npm run test:watch
+
+# Run E2E tests (requires network, skipped in CI)
+npm run test:e2e
+
+# Lint
+npm run lint
 ```
 
 ## Project Structure
@@ -187,25 +236,40 @@ npm run test:watch
 ```
 uniclaw/
 ├── src/
-│   ├── index.ts              # Plugin entry point
-│   ├── config.ts             # Configuration schema
-│   ├── sphere.ts             # Sphere SDK singleton
-│   ├── channel.ts            # Channel plugin (adapters + onboarding)
-│   ├── setup.ts              # Shared interactive setup logic
+│   ├── index.ts              # Plugin entry point & registration
+│   ├── config.ts             # Configuration schema & validation
+│   ├── validation.ts         # Shared validation (nametag regex, recipient format)
+│   ├── sphere.ts             # Sphere SDK singleton lifecycle
+│   ├── channel.ts            # Channel plugin (7 adapters + onboarding)
+│   ├── assets.ts             # Asset registry & decimal conversion
+│   ├── setup.ts              # Interactive setup wizard
 │   ├── cli-prompter.ts       # WizardPrompter adapter for CLI
+│   ├── resources/
+│   │   └── unicity-ids.testnet.json  # Fungible asset metadata
 │   └── tools/
-│       └── send-message.ts   # Agent tool
+│       ├── send-message.ts           # Send encrypted DMs
+│       ├── get-balance.ts            # Check wallet balances
+│       ├── list-tokens.ts            # List individual tokens
+│       ├── get-transaction-history.ts # View transaction history
+│       ├── send-tokens.ts            # Transfer tokens
+│       ├── request-payment.ts        # Request payment from a user
+│       ├── list-payment-requests.ts  # View payment requests
+│       ├── respond-payment-request.ts # Pay/accept/reject requests
+│       └── top-up.ts                 # Testnet faucet
 ├── test/
-│   ├── config.test.ts        # Config unit tests
-│   ├── sphere.test.ts        # Sphere unit tests (mocked)
-│   ├── sphere.integration.test.ts  # Integration tests (real SDK)
-│   ├── channel.test.ts       # Channel adapter tests
-│   ├── index.test.ts         # Plugin registration tests
-│   └── tools/
-│       └── send-message.test.ts
+│   ├── config.test.ts
+│   ├── assets.test.ts
+│   ├── sphere.test.ts
+│   ├── sphere.integration.test.ts
+│   ├── channel.test.ts
+│   ├── index.test.ts
+│   ├── tools/                # One test file per tool
+│   └── e2e/
+│       └── wallet.test.ts    # End-to-end wallet + DM + transfer tests
 ├── openclaw.plugin.json      # Plugin manifest
 ├── package.json
 ├── vitest.config.ts
+├── vitest.e2e.config.ts
 ├── LICENSE
 └── README.md
 ```
