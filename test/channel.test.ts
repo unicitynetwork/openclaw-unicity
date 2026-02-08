@@ -224,7 +224,7 @@ describe("gateway.startAccount", () => {
     });
 
     const ctx = mockRuntime.channel.reply.finalizeInboundContext.mock.calls[0][0];
-    expect(ctx.Body).toBe("Hello agent!");
+    expect(ctx.Body).toBe("[from: @alice (contact)]\nHello agent!");
     expect(ctx.From).toBe("@alice");
     expect(ctx.SessionKey).toBe("uniclaw:dm:@alice");
     expect(ctx.ChatType).toBe("direct");
@@ -307,7 +307,7 @@ describe("gateway.startAccount", () => {
   it("dispatches reply and delivers via sendDM", async () => {
     mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mockImplementation(
       async (params: any) => {
-        await params.dispatcherOptions.deliver({ text: "Hello back!" });
+        await params.dispatcherOptions.deliver({ text: "Hello back!" }, { kind: "final" });
       },
     );
 
@@ -323,7 +323,7 @@ describe("gateway.startAccount", () => {
     });
 
     await vi.waitFor(() => {
-      expect(mockSphere.communications.sendDM).toHaveBeenCalledWith("@bob", "Hello back!");
+      expect(mockSphere.communications.sendDM).toHaveBeenCalledWith("sender123", "Hello back!");
     });
   });
 
@@ -356,7 +356,7 @@ describe("gateway.startAccount", () => {
     mockSphere.communications.sendDM.mockRejectedValue(new Error("relay down"));
     mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mockImplementation(
       async (params: any) => {
-        await params.dispatcherOptions.deliver({ text: "reply" });
+        await params.dispatcherOptions.deliver({ text: "reply" }, { kind: "final" });
       },
     );
 
