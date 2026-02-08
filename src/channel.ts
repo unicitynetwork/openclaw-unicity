@@ -202,9 +202,11 @@ export const unicityChannelPlugin = {
         ctx.log?.info(`[${ctx.account.accountId}] DM received from ${peerId}: ${msg.content.slice(0, 80)}`);
 
         const isOwner = isSenderOwner(msg.senderPubkey, msg.senderNametag);
+        const senderRole = isOwner ? "owner" : "contact";
+        const body = `[from: ${peerId} (${senderRole})]\n${msg.content}`;
 
         const inboundCtx = runtime.channel.reply.finalizeInboundContext({
-          Body: msg.content,
+          Body: body,
           RawBody: msg.content,
           From: peerId,
           To: sphere.identity?.nametag ?? sphere.identity?.chainPubkey ?? "agent",
