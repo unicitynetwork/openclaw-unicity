@@ -231,7 +231,13 @@ export const uniclawChannelPlugin = {
                 const text = payload.text;
                 if (!text) return;
                 try {
-                  await sphere.communications.sendDM(peerId, text);
+                  // Reply using raw Nostr pubkey from the unwrapped seal, NOT the
+                  // nametag.  The nametag resolution on the relay may return a
+                  // different Nostr pubkey (e.g. registered with the SDK's direct
+                  // key derivation) than the one the sender's browser extension
+                  // actually uses (SPHERE_NOSTR_V1 derivation).  Sending to the
+                  // raw pubkey guarantees the reply reaches the correct recipient.
+                  await sphere.communications.sendDM(msg.senderPubkey, text);
                   ctx.log?.info(`[${ctx.account.accountId}] DM sent to ${peerId}: ${text.slice(0, 80)}`);
                 } catch (err) {
                   ctx.log?.error(`[${ctx.account.accountId}] Failed to send DM to ${peerId}: ${err}`);
