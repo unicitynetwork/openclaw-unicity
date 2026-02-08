@@ -226,16 +226,27 @@ export const uniclawChannelPlugin = {
             ctx: inboundCtx,
             cfg: ctx.cfg,
             dispatcherOptions: {
-              deliver: async (payload: { text?: string }) => {
+              deliver: async (payload: { text?: string }, info: { kind: string }) => {
+                ctx.log?.info(`[${ctx.account.accountId}] deliver called: kind=${info.kind} textLen=${payload.text?.length ?? 0}`);
                 const text = payload.text;
                 if (!text) return;
                 try {
                   await sphere.communications.sendDM(peerId, text);
+                  ctx.log?.info(`[${ctx.account.accountId}] DM sent to ${peerId}: ${text.slice(0, 80)}`);
                 } catch (err) {
                   ctx.log?.error(`[${ctx.account.accountId}] Failed to send DM to ${peerId}: ${err}`);
                 }
               },
+              onSkip: (payload: { text?: string }, info: { kind: string; reason: string }) => {
+                ctx.log?.warn(`[${ctx.account.accountId}] Reply SKIPPED: kind=${info.kind} reason=${info.reason} text="${payload.text?.slice(0, 60) ?? ""}"`);
+              },
+              onError: (err: unknown, info: { kind: string }) => {
+                ctx.log?.error(`[${ctx.account.accountId}] Reply delivery ERROR: kind=${info.kind} err=${err}`);
+              },
             },
+          })
+          .then((result: unknown) => {
+            ctx.log?.info(`[${ctx.account.accountId}] Dispatch result: ${JSON.stringify(result)}`);
           })
           .catch((err: unknown) => {
             ctx.log?.error(`[${ctx.account.accountId}] Reply dispatch error: ${err}`);
