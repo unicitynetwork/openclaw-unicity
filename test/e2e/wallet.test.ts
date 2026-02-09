@@ -1,5 +1,5 @@
 /**
- * E2E tests for Uniclaw wallet functionality.
+ * E2E tests for Unicity wallet functionality.
  *
  * Tests real Sphere SDK operations on testnet:
  * - Wallet creation with random nametags
@@ -57,7 +57,7 @@ interface TempDirs {
 }
 
 function makeTempDirs(label: string): TempDirs {
-  const base = join(tmpdir(), `uniclaw-e2e-${label}-${Date.now()}-${rand()}`);
+  const base = join(tmpdir(), `unicity-e2e-${label}-${Date.now()}-${rand()}`);
   const dataDir = join(base, "data");
   const tokensDir = join(base, "tokens");
   mkdirSync(dataDir, { recursive: true });
@@ -200,7 +200,7 @@ async function cleanup(ctx: WalletContext | null): Promise<void> {
 // DM Tests - Each test creates fresh wallets
 // =============================================================================
 
-describe("Uniclaw E2E: DM Operations", () => {
+describe("Unicity E2E: DM Operations", () => {
   let alice: WalletContext | null = null;
   let bob: WalletContext | null = null;
 
@@ -312,7 +312,7 @@ describe("Uniclaw E2E: DM Operations", () => {
 // Token Tests - Faucet and transfers
 // =============================================================================
 
-describe("Uniclaw E2E: Token Operations", () => {
+describe("Unicity E2E: Token Operations", () => {
   let alice: WalletContext | null = null;
   let bob: WalletContext | null = null;
 

@@ -1,5 +1,5 @@
 {
-  "name": "@unicitylabs/uniclaw",
+  "name": "@unicitylabs/openclaw-unicity",
   "version": "0.1.6",
   "description": "Unicity wallet identity and encrypted DMs for OpenClaw agents — powered by Sphere SDK",
   "type": "module",
@@ -7,11 +7,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/unicitynetwork/uniclaw.git"
+    "url": "https://github.com/unicitynetwork/openclaw-unicity.git"
   },
-  "homepage": "https://github.com/unicitynetwork/uniclaw#readme",
+  "homepage": "https://github.com/unicitynetwork/openclaw-unicity#readme",
   "bugs": {
-    "url": "https://github.com/unicitynetwork/uniclaw/issues"
+    "url": "https://github.com/unicitynetwork/openclaw-unicity/issues"
   },
   "keywords": [
     "unicity",

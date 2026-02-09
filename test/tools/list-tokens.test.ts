@@ -27,7 +27,7 @@ describe("listTokensTool", () => {
   });
 
   it("has correct name and description", () => {
-    expect(listTokensTool.name).toBe("uniclaw_list_tokens");
+    expect(listTokensTool.name).toBe("unicity_list_tokens");
     expect(listTokensTool.description).toContain("token");
   });
 

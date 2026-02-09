@@ -57,5 +57,5 @@ jobs:
         run: |
           gh release create "v${{ inputs.version }}" \
             --title "v${{ inputs.version }}" \
-            --notes "Published to npm: https://www.npmjs.com/package/@unicitylabs/uniclaw/v/${{ inputs.version }}" \
-            unicitylabs-uniclaw-${{ inputs.version }}.tgz
+            --notes "Published to npm: https://www.npmjs.com/package/@unicitylabs/openclaw-unicity/v/${{ inputs.version }}" \
+            unicitylabs-openclaw-unicity-${{ inputs.version }}.tgz

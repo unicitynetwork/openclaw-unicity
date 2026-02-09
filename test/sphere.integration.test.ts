@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 function makeTempDirs() {
-  const base = join(tmpdir(), `uniclaw-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const base = join(tmpdir(), `unicity-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   const dataDir = join(base, "data");
   const tokensDir = join(base, "tokens");
   mkdirSync(dataDir, { recursive: true });

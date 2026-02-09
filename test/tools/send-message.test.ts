@@ -18,7 +18,7 @@ describe("sendMessageTool", () => {
   });
 
   it("has correct name and description", () => {
-    expect(sendMessageTool.name).toBe("uniclaw_send_message");
+    expect(sendMessageTool.name).toBe("unicity_send_message");
     expect(sendMessageTool.description).toContain("direct message");
   });
 

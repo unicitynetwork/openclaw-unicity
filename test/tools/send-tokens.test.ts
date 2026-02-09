@@ -36,7 +36,7 @@ describe("sendTokensTool", () => {
   });
 
   it("has correct name and description", () => {
-    expect(sendTokensTool.name).toBe("uniclaw_send_tokens");
+    expect(sendTokensTool.name).toBe("unicity_send_tokens");
     expect(sendTokensTool.description).toContain("IMPORTANT");
     expect(sendTokensTool.description).toContain("explicitly instructed");
   });

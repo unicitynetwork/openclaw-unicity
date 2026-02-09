@@ -1,6 +1,6 @@
 {
-  "id": "uniclaw",
-  "channels": ["uniclaw"],
+  "id": "unicity",
+  "channels": ["unicity"],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,

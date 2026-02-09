@@ -1,11 +1,11 @@
-/** Agent tool: uniclaw_send_message — send a Nostr DM via Sphere. */
+/** Agent tool: unicity_send_message — send a Nostr DM via Sphere. */
 
 import { Type } from "@sinclair/typebox";
 import { getSphere } from "../sphere.js";
 import { validateRecipient } from "../validation.js";
 
 export const sendMessageTool = {
-  name: "uniclaw_send_message",
+  name: "unicity_send_message",
   description:
     "Send a direct message to a Unicity/Nostr user. The recipient can be a nametag (e.g. @alice) or a hex public key.",
   parameters: Type.Object({

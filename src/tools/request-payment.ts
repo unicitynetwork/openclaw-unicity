@@ -1,4 +1,4 @@
-/** Agent tool: uniclaw_request_payment — request payment from someone. */
+/** Agent tool: unicity_request_payment — request payment from someone. */
 
 import { Type } from "@sinclair/typebox";
 import { getSphere } from "../sphere.js";
@@ -6,7 +6,7 @@ import { resolveCoinId, getCoinSymbol, getCoinDecimals, getCoinId, toSmallestUni
 import { validateRecipient } from "../validation.js";
 
 export const requestPaymentTool = {
-  name: "uniclaw_request_payment",
+  name: "unicity_request_payment",
   description:
     "Send a payment request to another user, asking them to pay a specific amount.",
   parameters: Type.Object({

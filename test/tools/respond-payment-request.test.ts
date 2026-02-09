@@ -24,7 +24,7 @@ describe("respondPaymentRequestTool", () => {
   });
 
   it("has correct name and description", () => {
-    expect(respondPaymentRequestTool.name).toBe("uniclaw_respond_payment_request");
+    expect(respondPaymentRequestTool.name).toBe("unicity_respond_payment_request");
     expect(respondPaymentRequestTool.description).toContain("IMPORTANT");
     expect(respondPaymentRequestTool.description).toContain("explicitly instructed");
   });

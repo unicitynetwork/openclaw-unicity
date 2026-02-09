@@ -5,13 +5,13 @@ import { homedir } from "node:os";
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { Sphere } from "@unicitylabs/sphere-sdk";
 import { createNodeProviders } from "@unicitylabs/sphere-sdk/impl/nodejs";
-import type { UniclawConfig } from "./config.js";
+import type { UnicityConfig } from "./config.js";
 
 export const DATA_DIR = join(homedir(), ".openclaw", "unicity");
 const TOKENS_DIR = join(DATA_DIR, "tokens");
 export const MNEMONIC_PATH = join(DATA_DIR, "mnemonic.txt");
 const TRUSTBASE_PATH = join(DATA_DIR, "trustbase.json");
-const TRUSTBASE_URL = process.env.UNICLAW_TRUSTBASE_URL
+const TRUSTBASE_URL = process.env.UNICITY_TRUSTBASE_URL
   ?? "https://raw.githubusercontent.com/unicitynetwork/unicity-ids/refs/heads/main/bft-trustbase.testnet.json";
 
 /** Default testnet API key (from Sphere app) */
@@ -45,7 +45,7 @@ export type InitSphereResult = {
 };
 
 export async function initSphere(
-  cfg: UniclawConfig,
+  cfg: UnicityConfig,
   logger?: SphereLogger,
 ): Promise<InitSphereResult> {
   if (sphereInstance) {
@@ -73,7 +73,7 @@ async function ensureTrustbase(logger?: SphereLogger): Promise<void> {
   if (existsSync(TRUSTBASE_PATH)) return;
 
   const log = logger ?? console;
-  log.info(`[uniclaw] Downloading trustbase from ${TRUSTBASE_URL}...`);
+  log.info(`[unicity] Downloading trustbase from ${TRUSTBASE_URL}...`);
 
   const res = await fetch(TRUSTBASE_URL);
   if (!res.ok) {
@@ -81,11 +81,11 @@ async function ensureTrustbase(logger?: SphereLogger): Promise<void> {
   }
   const data = await res.text();
   writeFileSync(TRUSTBASE_PATH, data, { mode: 0o644 });
-  log.info(`[uniclaw] Trustbase saved to ${TRUSTBASE_PATH}`);
+  log.info(`[unicity] Trustbase saved to ${TRUSTBASE_PATH}`);
 }
 
 async function doInitSphere(
-  cfg: UniclawConfig,
+  cfg: UnicityConfig,
   logger?: SphereLogger,
 ): Promise<InitSphereResult> {
   mkdirSync(DATA_DIR, { recursive: true });
@@ -128,13 +128,13 @@ async function doInitSphere(
   if (result.created && result.generatedMnemonic) {
     writeFileSync(MNEMONIC_PATH, result.generatedMnemonic + "\n", { mode: 0o600 });
     const log = logger ?? console;
-    log.info(`[uniclaw] Mnemonic saved to ${MNEMONIC_PATH}`);
+    log.info(`[unicity] Mnemonic saved to ${MNEMONIC_PATH}`);
   }
 
   // Log helpful messages about nametag state
   if (result.created && !cfg.nametag) {
     const log = logger ?? console;
-    log.warn("[uniclaw] Wallet created without nametag. Run 'openclaw uniclaw setup' to configure.");
+    log.warn("[unicity] Wallet created without nametag. Run 'openclaw unicity setup' to configure.");
   }
 
   // Register nametag if configured and wallet doesn't have one yet
@@ -143,10 +143,10 @@ async function doInitSphere(
     try {
       await result.sphere.registerNametag(cfg.nametag);
       const log = logger ?? console;
-      log.info(`[uniclaw] Nametag '${cfg.nametag}' registered successfully.`);
+      log.info(`[unicity] Nametag '${cfg.nametag}' registered successfully.`);
     } catch (err) {
       // Non-fatal; nametag may already be taken
-      const msg = `[uniclaw] Failed to register nametag "${cfg.nametag}": ${err}`;
+      const msg = `[unicity] Failed to register nametag "${cfg.nametag}": ${err}`;
       if (logger) {
         logger.warn(msg);
       } else {
@@ -156,7 +156,7 @@ async function doInitSphere(
   } else if (cfg.nametag && walletNametag && cfg.nametag !== walletNametag) {
     const log = logger ?? console;
     log.warn(
-      `[uniclaw] Config nametag '${cfg.nametag}' differs from wallet nametag '${walletNametag}'. Wallet nametag is used. To change nametag, create a new wallet.`,
+      `[unicity] Config nametag '${cfg.nametag}' differs from wallet nametag '${walletNametag}'. Wallet nametag is used. To change nametag, create a new wallet.`,
     );
   }
 
@@ -165,12 +165,12 @@ async function doInitSphere(
     const log = logger ?? console;
     const myNametag = result.sphere.identity?.nametag ?? "unknown";
     const greeting = `I'm online, master! I am @${myNametag}. What can I do for you?`;
-    log.info(`[uniclaw] Sending greeting to owner @${cfg.owner}...`);
+    log.info(`[unicity] Sending greeting to owner @${cfg.owner}...`);
     try {
       await result.sphere.communications.sendDM(`@${cfg.owner}`, greeting);
-      log.info(`[uniclaw] Greeting sent to @${cfg.owner}`);
+      log.info(`[unicity] Greeting sent to @${cfg.owner}`);
     } catch (err) {
-      log.warn(`[uniclaw] Failed to send greeting to @${cfg.owner}: ${err}`);
+      log.warn(`[unicity] Failed to send greeting to @${cfg.owner}: ${err}`);
     }
   }
 
@@ -182,7 +182,7 @@ async function doInitSphere(
 
 export function getSphere(): Sphere {
   if (!sphereInstance) {
-    throw new Error("[uniclaw] Sphere not initialized. Run `openclaw uniclaw init` first.");
+    throw new Error("[unicity] Sphere not initialized. Run `openclaw unicity init` first.");
   }
   return sphereInstance;
 }
@@ -198,7 +198,7 @@ export function waitForSphere(timeoutMs = 30_000): Promise<Sphere | null> {
     sphereReady.promise,
     new Promise<Sphere | null>((_, reject) =>
       setTimeout(
-        () => reject(new Error(`[uniclaw] Sphere initialization timed out after ${timeoutMs}ms`)),
+        () => reject(new Error(`[unicity] Sphere initialization timed out after ${timeoutMs}ms`)),
         timeoutMs,
       ),
     ),

@@ -45,7 +45,7 @@ describe("topUpTool", () => {
   });
 
   it("has correct name and description", () => {
-    expect(topUpTool.name).toBe("uniclaw_top_up");
+    expect(topUpTool.name).toBe("unicity_top_up");
     expect(topUpTool.description).toContain("faucet");
     expect(topUpTool.description).toContain("testnet");
   });

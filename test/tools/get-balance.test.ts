@@ -26,7 +26,7 @@ describe("getBalanceTool", () => {
   });
 
   it("has correct name and description", () => {
-    expect(getBalanceTool.name).toBe("uniclaw_get_balance");
+    expect(getBalanceTool.name).toBe("unicity_get_balance");
     expect(getBalanceTool.description).toContain("balance");
   });
 

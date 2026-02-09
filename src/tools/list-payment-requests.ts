@@ -1,11 +1,11 @@
-/** Agent tool: uniclaw_list_payment_requests — view incoming/outgoing payment requests. */
+/** Agent tool: unicity_list_payment_requests — view incoming/outgoing payment requests. */
 
 import { Type } from "@sinclair/typebox";
 import { getSphere } from "../sphere.js";
 import { getCoinDecimals, getCoinSymbol, toHumanReadable } from "../assets.js";
 
 export const listPaymentRequestsTool = {
-  name: "uniclaw_list_payment_requests",
+  name: "unicity_list_payment_requests",
   description:
     "List payment requests — incoming (others requesting payment from you), outgoing (your requests to others), or all.",
   parameters: Type.Object({

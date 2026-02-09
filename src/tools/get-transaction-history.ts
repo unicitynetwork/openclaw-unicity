@@ -1,11 +1,11 @@
-/** Agent tool: uniclaw_get_transaction_history — view transaction history. */
+/** Agent tool: unicity_get_transaction_history — view transaction history. */
 
 import { Type } from "@sinclair/typebox";
 import { getSphere } from "../sphere.js";
 import { getCoinDecimals, toHumanReadable } from "../assets.js";
 
 export const getTransactionHistoryTool = {
-  name: "uniclaw_get_transaction_history",
+  name: "unicity_get_transaction_history",
   description:
     "Get recent transaction history for the wallet. Returns the most recent transactions first.",
   parameters: Type.Object({

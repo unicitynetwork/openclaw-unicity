@@ -1,11 +1,11 @@
-/** Agent tool: uniclaw_get_balance — get wallet token balances. */
+/** Agent tool: unicity_get_balance — get wallet token balances. */
 
 import { Type } from "@sinclair/typebox";
 import { getSphere } from "../sphere.js";
 import { getCoinDecimals, toHumanReadable } from "../assets.js";
 
 export const getBalanceTool = {
-  name: "uniclaw_get_balance",
+  name: "unicity_get_balance",
   description:
     "Get a summary of token balances in the wallet. Optionally filter by coin ID.",
   parameters: Type.Object({

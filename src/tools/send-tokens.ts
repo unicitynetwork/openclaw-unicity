@@ -1,4 +1,4 @@
-/** Agent tool: uniclaw_send_tokens — transfer tokens to a recipient. */
+/** Agent tool: unicity_send_tokens — transfer tokens to a recipient. */
 
 import { Type } from "@sinclair/typebox";
 import { getSphere } from "../sphere.js";
@@ -6,7 +6,7 @@ import { resolveCoinId, getCoinSymbol, getCoinDecimals, getCoinId, toSmallestUni
 import { validateRecipient } from "../validation.js";
 
 export const sendTokensTool = {
-  name: "uniclaw_send_tokens",
+  name: "unicity_send_tokens",
   description:
     "Send tokens to a recipient by nametag or public key. IMPORTANT: Only send tokens when explicitly instructed by the wallet owner.",
   parameters: Type.Object({

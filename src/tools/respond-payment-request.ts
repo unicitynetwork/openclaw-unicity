@@ -1,10 +1,10 @@
-/** Agent tool: uniclaw_respond_payment_request — accept, reject, or pay a payment request. */
+/** Agent tool: unicity_respond_payment_request — accept, reject, or pay a payment request. */
 
 import { Type } from "@sinclair/typebox";
 import { getSphere } from "../sphere.js";
 
 export const respondPaymentRequestTool = {
-  name: "uniclaw_respond_payment_request",
+  name: "unicity_respond_payment_request",
   description:
     "Respond to an incoming payment request by paying, accepting, or rejecting it. IMPORTANT: Only pay requests when explicitly instructed by the wallet owner.",
   parameters: Type.Object({

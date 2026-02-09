@@ -1,14 +1,14 @@
-/** Agent tool: uniclaw_top_up — request test tokens from the faucet. */
+/** Agent tool: unicity_top_up — request test tokens from the faucet. */
 
 import { Type } from "@sinclair/typebox";
 import { getSphere } from "../sphere.js";
 import { resolveCoinId, getCoinSymbol, getAvailableSymbols } from "../assets.js";
 
-const FAUCET_API_URL = process.env.UNICLAW_FAUCET_URL
+const FAUCET_API_URL = process.env.UNICITY_FAUCET_URL
   ?? "https://faucet.unicity.network/api/v1/faucet/request";
 
 export const topUpTool = {
-  name: "uniclaw_top_up",
+  name: "unicity_top_up",
   description:
     "Request test tokens from the Unicity faucet. This is for testnet only.",
   parameters: Type.Object({

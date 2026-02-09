@@ -27,7 +27,7 @@ describe("getTransactionHistoryTool", () => {
   });
 
   it("has correct name and description", () => {
-    expect(getTransactionHistoryTool.name).toBe("uniclaw_get_transaction_history");
+    expect(getTransactionHistoryTool.name).toBe("unicity_get_transaction_history");
     expect(getTransactionHistoryTool.description).toContain("history");
   });
 

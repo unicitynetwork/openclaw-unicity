@@ -62,8 +62,8 @@ describe("plugin definition", () => {
   });
 
   it("has correct id and name", () => {
-    expect(plugin.id).toBe("uniclaw");
-    expect(plugin.name).toBe("Uniclaw");
+    expect(plugin.id).toBe("unicity");
+    expect(plugin.name).toBe("Unicity");
   });
 
   it("register calls all registration methods", () => {
@@ -73,19 +73,19 @@ describe("plugin definition", () => {
     expect(api.registerChannel).toHaveBeenCalledOnce();
     expect(api.registerTool).toHaveBeenCalledTimes(9);
     expect(api.registerTool).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "uniclaw_send_message" }),
+      expect.objectContaining({ name: "unicity_send_message" }),
     );
     expect(api.registerTool).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "uniclaw_get_balance" }),
+      expect.objectContaining({ name: "unicity_get_balance" }),
     );
     expect(api.registerTool).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "uniclaw_send_tokens" }),
+      expect.objectContaining({ name: "unicity_send_tokens" }),
     );
     expect(api.registerService).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "uniclaw" }),
+      expect.objectContaining({ id: "unicity" }),
     );
     expect(api.registerCli).toHaveBeenCalledWith(expect.any(Function), {
-      commands: ["uniclaw"],
+      commands: ["unicity"],
     });
     expect(api.on).toHaveBeenCalledWith("before_agent_start", expect.any(Function));
   });
@@ -127,10 +127,10 @@ describe("plugin definition", () => {
     expect(result).toBeDefined();
     expect(result.prependContext).toContain("@mybot");
     expect(result.prependContext).toContain("abc123");
-    expect(result.prependContext).toContain("uniclaw_send_message");
-    expect(result.prependContext).toContain("uniclaw_get_balance");
-    expect(result.prependContext).toContain("uniclaw_send_tokens");
-    expect(result.prependContext).toContain("uniclaw_top_up");
+    expect(result.prependContext).toContain("unicity_send_message");
+    expect(result.prependContext).toContain("unicity_get_balance");
+    expect(result.prependContext).toContain("unicity_send_tokens");
+    expect(result.prependContext).toContain("unicity_top_up");
     expect(result.prependContext).toContain("Never send tokens or pay payment requests unless explicitly instructed");
     expect(result.prependContext).toContain("Never reveal your mnemonic");
   });
@@ -147,7 +147,7 @@ describe("plugin definition", () => {
     // Register with initial owner "alice"
     const api = makeApi({
       runtimeConfig: {
-        plugins: { entries: { uniclaw: { config: { network: "testnet", owner: "bob" } } } },
+        plugins: { entries: { unicity: { config: { network: "testnet", owner: "bob" } } } },
       },
     });
     api.pluginConfig = { network: "testnet", owner: "alice" };

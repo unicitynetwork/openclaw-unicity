@@ -34,7 +34,7 @@ describe("listPaymentRequestsTool", () => {
   });
 
   it("has correct name and description", () => {
-    expect(listPaymentRequestsTool.name).toBe("uniclaw_list_payment_requests");
+    expect(listPaymentRequestsTool.name).toBe("unicity_list_payment_requests");
     expect(listPaymentRequestsTool.description).toContain("payment requests");
   });
 

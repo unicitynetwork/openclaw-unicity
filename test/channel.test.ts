@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
-  uniclawChannelPlugin,
+  unicityChannelPlugin,
   listUnicityAccountIds,
   resolveUnicityAccount,
   setUnicityRuntime,
@@ -10,61 +10,61 @@ import {
 } from "../src/channel.js";
 import { cancelSphereWait, destroySphere } from "../src/sphere.js";
 
-describe("uniclawChannelPlugin shape", () => {
+describe("unicityChannelPlugin shape", () => {
   it("has correct id", () => {
-    expect(uniclawChannelPlugin.id).toBe("uniclaw");
+    expect(unicityChannelPlugin.id).toBe("unicity");
   });
 
   it("has full meta", () => {
-    expect(uniclawChannelPlugin.meta.id).toBe("uniclaw");
-    expect(uniclawChannelPlugin.meta.label).toBe("Unicity");
-    expect(uniclawChannelPlugin.meta.selectionLabel).toBeTruthy();
-    expect(uniclawChannelPlugin.meta.docsPath).toBeTruthy();
-    expect(uniclawChannelPlugin.meta.blurb).toBeTruthy();
+    expect(unicityChannelPlugin.meta.id).toBe("unicity");
+    expect(unicityChannelPlugin.meta.label).toBe("Unicity");
+    expect(unicityChannelPlugin.meta.selectionLabel).toBeTruthy();
+    expect(unicityChannelPlugin.meta.docsPath).toBeTruthy();
+    expect(unicityChannelPlugin.meta.blurb).toBeTruthy();
   });
 
   it("supports direct chat type", () => {
-    expect(uniclawChannelPlugin.capabilities.chatTypes).toContain("direct");
+    expect(unicityChannelPlugin.capabilities.chatTypes).toContain("direct");
   });
 
   it("has config adapter with required methods", () => {
-    expect(typeof uniclawChannelPlugin.config.listAccountIds).toBe("function");
-    expect(typeof uniclawChannelPlugin.config.resolveAccount).toBe("function");
-    expect(typeof uniclawChannelPlugin.config.isConfigured).toBe("function");
-    expect(typeof uniclawChannelPlugin.config.describeAccount).toBe("function");
+    expect(typeof unicityChannelPlugin.config.listAccountIds).toBe("function");
+    expect(typeof unicityChannelPlugin.config.resolveAccount).toBe("function");
+    expect(typeof unicityChannelPlugin.config.isConfigured).toBe("function");
+    expect(typeof unicityChannelPlugin.config.describeAccount).toBe("function");
   });
 
   it("has outbound adapter with sendText", () => {
-    expect(uniclawChannelPlugin.outbound.deliveryMode).toBe("direct");
-    expect(typeof uniclawChannelPlugin.outbound.sendText).toBe("function");
+    expect(unicityChannelPlugin.outbound.deliveryMode).toBe("direct");
+    expect(typeof unicityChannelPlugin.outbound.sendText).toBe("function");
   });
 
   it("has gateway adapter with startAccount", () => {
-    expect(typeof uniclawChannelPlugin.gateway.startAccount).toBe("function");
+    expect(typeof unicityChannelPlugin.gateway.startAccount).toBe("function");
   });
 
   it("has status adapter", () => {
-    expect(uniclawChannelPlugin.status.defaultRuntime.accountId).toBe("default");
-    expect(typeof uniclawChannelPlugin.status.buildChannelSummary).toBe("function");
-    expect(typeof uniclawChannelPlugin.status.buildAccountSnapshot).toBe("function");
+    expect(unicityChannelPlugin.status.defaultRuntime.accountId).toBe("default");
+    expect(typeof unicityChannelPlugin.status.buildChannelSummary).toBe("function");
+    expect(typeof unicityChannelPlugin.status.buildAccountSnapshot).toBe("function");
   });
 
   it("has messaging adapter", () => {
-    expect(typeof uniclawChannelPlugin.messaging.normalizeTarget).toBe("function");
-    expect(uniclawChannelPlugin.messaging.normalizeTarget("@alice")).toBe("alice");
-    expect(uniclawChannelPlugin.messaging.normalizeTarget("bob")).toBe("bob");
+    expect(typeof unicityChannelPlugin.messaging.normalizeTarget).toBe("function");
+    expect(unicityChannelPlugin.messaging.normalizeTarget("@alice")).toBe("alice");
+    expect(unicityChannelPlugin.messaging.normalizeTarget("bob")).toBe("bob");
   });
 
   it("has security adapter defaulting to open policy", () => {
-    const policy = uniclawChannelPlugin.security.resolveDmPolicy({
+    const policy = unicityChannelPlugin.security.resolveDmPolicy({
       account: { config: {} } as ResolvedUnicityAccount,
     });
     expect(policy.policy).toBe("open");
-    expect(policy.allowFromPath).toBe("channels.uniclaw.allowFrom");
+    expect(policy.allowFromPath).toBe("channels.unicity.allowFrom");
   });
 
   it("resolves allowlist policy with allowFrom list", () => {
-    const policy = uniclawChannelPlugin.security.resolveDmPolicy({
+    const policy = unicityChannelPlugin.security.resolveDmPolicy({
       account: {
         config: { dmPolicy: "allowlist", allowFrom: ["@alice", "deadbeef"] },
       } as ResolvedUnicityAccount,
@@ -74,7 +74,7 @@ describe("uniclawChannelPlugin shape", () => {
   });
 
   it("resolves disabled policy", () => {
-    const policy = uniclawChannelPlugin.security.resolveDmPolicy({
+    const policy = unicityChannelPlugin.security.resolveDmPolicy({
       account: {
         config: { dmPolicy: "disabled" },
       } as ResolvedUnicityAccount,
@@ -83,7 +83,7 @@ describe("uniclawChannelPlugin shape", () => {
   });
 
   it("resolves pairing policy", () => {
-    const policy = uniclawChannelPlugin.security.resolveDmPolicy({
+    const policy = unicityChannelPlugin.security.resolveDmPolicy({
       account: {
         config: { dmPolicy: "pairing" },
       } as ResolvedUnicityAccount,
@@ -107,7 +107,7 @@ describe("config helpers", () => {
 
   it("resolveUnicityAccount reads channel config", () => {
     const cfg = {
-      channels: { uniclaw: { name: "my-bot", dmPolicy: "allowlist", enabled: false } },
+      channels: { unicity: { name: "my-bot", dmPolicy: "allowlist", enabled: false } },
     };
     const account = resolveUnicityAccount({ cfg, sphere: null });
     expect(account.name).toBe("my-bot");
@@ -131,7 +131,7 @@ describe("outbound.sendText", () => {
     setActiveSphere(null);
     cancelSphereWait();
     await expect(
-      uniclawChannelPlugin.outbound.sendText({ cfg: {}, to: "@alice", text: "hi" }),
+      unicityChannelPlugin.outbound.sendText({ cfg: {}, to: "@alice", text: "hi" }),
     ).rejects.toThrow("Sphere not initialized");
     await destroySphere(); // reset deferred for next test
   });
@@ -143,14 +143,14 @@ describe("outbound.sendText", () => {
       communications: { sendDM: mockSendDM },
     } as any);
 
-    const result = await uniclawChannelPlugin.outbound.sendText({
+    const result = await unicityChannelPlugin.outbound.sendText({
       cfg: {},
       to: "@alice",
       text: "hello",
     });
 
     expect(mockSendDM).toHaveBeenCalledWith("@alice", "hello");
-    expect(result).toEqual({ channel: "uniclaw", to: "@alice" });
+    expect(result).toEqual({ channel: "unicity", to: "@alice" });
 
     setActiveSphere(null);
   });
@@ -202,7 +202,7 @@ describe("gateway.startAccount", () => {
   });
 
   it("subscribes to DMs and returns stop handle", async () => {
-    const handle = await uniclawChannelPlugin.gateway.startAccount(mockCtx);
+    const handle = await unicityChannelPlugin.gateway.startAccount(mockCtx);
 
     expect(mockSphere.communications.onDirectMessage).toHaveBeenCalledOnce();
     expect(typeof handle.stop).toBe("function");
@@ -212,7 +212,7 @@ describe("gateway.startAccount", () => {
   });
 
   it("builds correct inbound context from DM", async () => {
-    await uniclawChannelPlugin.gateway.startAccount(mockCtx);
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
 
     dmHandler!({
       id: "msg-1",
@@ -226,15 +226,15 @@ describe("gateway.startAccount", () => {
     const ctx = mockRuntime.channel.reply.finalizeInboundContext.mock.calls[0][0];
     expect(ctx.Body).toBe("Hello agent!");
     expect(ctx.From).toBe("@alice");
-    expect(ctx.SessionKey).toBe("uniclaw:dm:@alice");
+    expect(ctx.SessionKey).toBe("unicity:dm:@alice");
     expect(ctx.ChatType).toBe("direct");
-    expect(ctx.Surface).toBe("uniclaw");
+    expect(ctx.Surface).toBe("unicity");
     expect(ctx.SenderId).toBe("deadbeef");
   });
 
   it("sets CommandAuthorized=true and IsOwner=true when sender is the owner", async () => {
     setOwnerIdentity("alice");
-    await uniclawChannelPlugin.gateway.startAccount(mockCtx);
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
 
     dmHandler!({
       id: "msg-owner",
@@ -252,7 +252,7 @@ describe("gateway.startAccount", () => {
 
   it("sets CommandAuthorized=false and IsOwner=false for non-owner sender", async () => {
     setOwnerIdentity("alice");
-    await uniclawChannelPlugin.gateway.startAccount(mockCtx);
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
 
     dmHandler!({
       id: "msg-stranger",
@@ -270,7 +270,7 @@ describe("gateway.startAccount", () => {
 
   it("matches owner by pubkey when no nametag", async () => {
     setOwnerIdentity("cafebabe");
-    await uniclawChannelPlugin.gateway.startAccount(mockCtx);
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
 
     dmHandler!({
       id: "msg-pk",
@@ -288,7 +288,7 @@ describe("gateway.startAccount", () => {
 
   it("CommandAuthorized=false when no owner is configured", async () => {
     setOwnerIdentity(undefined);
-    await uniclawChannelPlugin.gateway.startAccount(mockCtx);
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
 
     dmHandler!({
       id: "msg-noowner",
@@ -311,7 +311,7 @@ describe("gateway.startAccount", () => {
       },
     );
 
-    await uniclawChannelPlugin.gateway.startAccount(mockCtx);
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
 
     dmHandler!({
       id: "msg-2",
@@ -334,7 +334,7 @@ describe("gateway.startAccount", () => {
       },
     );
 
-    await uniclawChannelPlugin.gateway.startAccount(mockCtx);
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
 
     dmHandler!({
       id: "msg-3",
@@ -360,7 +360,7 @@ describe("gateway.startAccount", () => {
       },
     );
 
-    await uniclawChannelPlugin.gateway.startAccount(mockCtx);
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
 
     dmHandler!({
       id: "msg-4",
@@ -382,7 +382,7 @@ describe("gateway.startAccount", () => {
     setActiveSphere(null);
     cancelSphereWait();
     await expect(
-      uniclawChannelPlugin.gateway.startAccount(mockCtx),
+      unicityChannelPlugin.gateway.startAccount(mockCtx),
     ).rejects.toThrow("Sphere not initialized");
     await destroySphere(); // reset deferred
   });
@@ -394,7 +394,7 @@ describe("gateway.startAccount", () => {
     const unsub = vi.fn();
     mockSphere.communications.onDirectMessage.mockReturnValue(unsub);
 
-    await uniclawChannelPlugin.gateway.startAccount(mockCtx);
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
 
     expect(unsub).not.toHaveBeenCalled();
     abortController.abort();
@@ -408,7 +408,7 @@ describe("gateway.startAccount", () => {
       return vi.fn();
     });
 
-    await uniclawChannelPlugin.gateway.startAccount(mockCtx);
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
 
     expect(transferHandler).not.toBeNull();
 
@@ -428,7 +428,7 @@ describe("gateway.startAccount", () => {
     expect(ctx.Body).toContain("[Payment received]");
     expect(ctx.Body).toContain("from @alice");
     expect(ctx.Body).toContain("for lunch");
-    expect(ctx.SessionKey).toBe("uniclaw:transfer:transfer-1");
+    expect(ctx.SessionKey).toBe("unicity:transfer:transfer-1");
     expect(ctx.IsOwner).toBe(false);
     expect(ctx.CommandAuthorized).toBe(false);
   });
@@ -440,7 +440,7 @@ describe("gateway.startAccount", () => {
       return vi.fn();
     });
 
-    await uniclawChannelPlugin.gateway.startAccount(mockCtx);
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
 
     expect(payreqHandler).not.toBeNull();
 
@@ -463,7 +463,7 @@ describe("gateway.startAccount", () => {
     expect(ctx.Body).toContain("@bob");
     expect(ctx.Body).toContain("pay me back");
     expect(ctx.Body).toContain("req-42");
-    expect(ctx.SessionKey).toBe("uniclaw:payreq:req-42");
+    expect(ctx.SessionKey).toBe("unicity:payreq:req-42");
     expect(ctx.IsOwner).toBe(false);
     expect(ctx.CommandAuthorized).toBe(false);
   });
@@ -483,7 +483,7 @@ describe("gateway.startAccount", () => {
       return vi.fn();
     });
 
-    await uniclawChannelPlugin.gateway.startAccount(mockCtx);
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
 
     expect(unsubDm).not.toHaveBeenCalled();
     expect(unsubTransfer).not.toHaveBeenCalled();

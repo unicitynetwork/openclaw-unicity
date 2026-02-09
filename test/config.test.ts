@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { resolveUniclawConfig } from "../src/config.js";
+import { resolveUnicityConfig } from "../src/config.js";
 
-describe("resolveUniclawConfig", () => {
+describe("resolveUnicityConfig", () => {
   it("returns defaults for undefined input", () => {
-    const cfg = resolveUniclawConfig(undefined);
+    const cfg = resolveUnicityConfig(undefined);
     expect(cfg.network).toBe("testnet");
     expect(cfg.nametag).toBeUndefined();
     expect(cfg.owner).toBeUndefined();
@@ -11,82 +11,82 @@ describe("resolveUniclawConfig", () => {
   });
 
   it("returns defaults for empty object", () => {
-    const cfg = resolveUniclawConfig({});
+    const cfg = resolveUnicityConfig({});
     expect(cfg.network).toBe("testnet");
   });
 
   it("accepts valid network values", () => {
-    expect(resolveUniclawConfig({ network: "mainnet" }).network).toBe("mainnet");
-    expect(resolveUniclawConfig({ network: "dev" }).network).toBe("dev");
-    expect(resolveUniclawConfig({ network: "testnet" }).network).toBe("testnet");
+    expect(resolveUnicityConfig({ network: "mainnet" }).network).toBe("mainnet");
+    expect(resolveUnicityConfig({ network: "dev" }).network).toBe("dev");
+    expect(resolveUnicityConfig({ network: "testnet" }).network).toBe("testnet");
   });
 
   it("rejects invalid network, falls back to testnet", () => {
-    expect(resolveUniclawConfig({ network: "invalid" }).network).toBe("testnet");
-    expect(resolveUniclawConfig({ network: 42 }).network).toBe("testnet");
+    expect(resolveUnicityConfig({ network: "invalid" }).network).toBe("testnet");
+    expect(resolveUnicityConfig({ network: 42 }).network).toBe("testnet");
   });
 
   it("parses nametag string", () => {
-    expect(resolveUniclawConfig({ nametag: "alice" }).nametag).toBe("alice");
+    expect(resolveUnicityConfig({ nametag: "alice" }).nametag).toBe("alice");
   });
 
   it("ignores non-string nametag", () => {
-    expect(resolveUniclawConfig({ nametag: 123 }).nametag).toBeUndefined();
+    expect(resolveUnicityConfig({ nametag: 123 }).nametag).toBeUndefined();
   });
 
   it("parses additionalRelays array", () => {
-    const cfg = resolveUniclawConfig({
+    const cfg = resolveUnicityConfig({
       additionalRelays: ["wss://relay1.example.com", "wss://relay2.example.com"],
     });
     expect(cfg.additionalRelays).toEqual(["wss://relay1.example.com", "wss://relay2.example.com"]);
   });
 
   it("filters non-string entries from additionalRelays", () => {
-    const cfg = resolveUniclawConfig({
+    const cfg = resolveUnicityConfig({
       additionalRelays: ["wss://ok.com", 42, null, "wss://also-ok.com"],
     });
     expect(cfg.additionalRelays).toEqual(["wss://ok.com", "wss://also-ok.com"]);
   });
 
   it("ignores non-array additionalRelays", () => {
-    expect(resolveUniclawConfig({ additionalRelays: "not-array" }).additionalRelays).toBeUndefined();
+    expect(resolveUnicityConfig({ additionalRelays: "not-array" }).additionalRelays).toBeUndefined();
   });
 
   it("parses owner string and strips @ prefix", () => {
-    expect(resolveUniclawConfig({ owner: "alice" }).owner).toBe("alice");
-    expect(resolveUniclawConfig({ owner: "@alice" }).owner).toBe("alice");
+    expect(resolveUnicityConfig({ owner: "alice" }).owner).toBe("alice");
+    expect(resolveUnicityConfig({ owner: "@alice" }).owner).toBe("alice");
   });
 
   it("ignores non-string or empty owner", () => {
-    expect(resolveUniclawConfig({ owner: 123 }).owner).toBeUndefined();
-    expect(resolveUniclawConfig({ owner: "" }).owner).toBeUndefined();
-    expect(resolveUniclawConfig({ owner: " " }).owner).toBeUndefined();
+    expect(resolveUnicityConfig({ owner: 123 }).owner).toBeUndefined();
+    expect(resolveUnicityConfig({ owner: "" }).owner).toBeUndefined();
+    expect(resolveUnicityConfig({ owner: " " }).owner).toBeUndefined();
   });
 
   it("strips nametag starting with a number", () => {
-    expect(resolveUniclawConfig({ nametag: "1badname" }).nametag).toBeUndefined();
+    expect(resolveUnicityConfig({ nametag: "1badname" }).nametag).toBeUndefined();
   });
 
   it("strips nametag with special characters", () => {
-    expect(resolveUniclawConfig({ nametag: "bad@name!" }).nametag).toBeUndefined();
+    expect(resolveUnicityConfig({ nametag: "bad@name!" }).nametag).toBeUndefined();
   });
 
   it("strips nametag exceeding 32 chars", () => {
-    expect(resolveUniclawConfig({ nametag: "a".repeat(33) }).nametag).toBeUndefined();
+    expect(resolveUnicityConfig({ nametag: "a".repeat(33) }).nametag).toBeUndefined();
   });
 
   it("accepts valid nametag formats", () => {
-    expect(resolveUniclawConfig({ nametag: "mybot" }).nametag).toBe("mybot");
-    expect(resolveUniclawConfig({ nametag: "My-Bot_01" }).nametag).toBe("My-Bot_01");
-    expect(resolveUniclawConfig({ nametag: "a" }).nametag).toBe("a");
+    expect(resolveUnicityConfig({ nametag: "mybot" }).nametag).toBe("mybot");
+    expect(resolveUnicityConfig({ nametag: "My-Bot_01" }).nametag).toBe("My-Bot_01");
+    expect(resolveUnicityConfig({ nametag: "a" }).nametag).toBe("a");
   });
 
   it("strips @ prefix from nametag before validation", () => {
-    expect(resolveUniclawConfig({ nametag: "@alice" }).nametag).toBe("alice");
+    expect(resolveUnicityConfig({ nametag: "@alice" }).nametag).toBe("alice");
   });
 
   it("strips owner with invalid nametag format", () => {
-    expect(resolveUniclawConfig({ owner: "1bad" }).owner).toBeUndefined();
-    expect(resolveUniclawConfig({ owner: "bad@!" }).owner).toBeUndefined();
+    expect(resolveUnicityConfig({ owner: "1bad" }).owner).toBeUndefined();
+    expect(resolveUnicityConfig({ owner: "bad@!" }).owner).toBeUndefined();
   });
 });

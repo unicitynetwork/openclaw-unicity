@@ -1,11 +1,11 @@
-/** Agent tool: uniclaw_list_tokens — list individual tokens in the wallet. */
+/** Agent tool: unicity_list_tokens — list individual tokens in the wallet. */
 
 import { Type } from "@sinclair/typebox";
 import { getSphere } from "../sphere.js";
 import { getCoinDecimals, toHumanReadable } from "../assets.js";
 
 export const listTokensTool = {
-  name: "uniclaw_list_tokens",
+  name: "unicity_list_tokens",
   description:
     "List individual tokens in the wallet, optionally filtered by coin ID and/or status.",
   parameters: Type.Object({

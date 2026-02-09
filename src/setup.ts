@@ -1,4 +1,4 @@
-/** Shared interactive setup logic for Uniclaw plugin configuration. */
+/** Shared interactive setup logic for Unicity plugin configuration. */
 
 import type { WizardPrompter } from "openclaw/plugin-sdk";
 import { NAMETAG_REGEX } from "./validation.js";
@@ -39,11 +39,11 @@ export async function runInteractiveSetup(
 
   const fullConfig = runtime.loadConfig() as Record<string, unknown>;
 
-  // Ensure plugins.entries.uniclaw.config exists
+  // Ensure plugins.entries.unicity.config exists
   const plugins = (fullConfig.plugins ?? {}) as Record<string, unknown>;
   const entries = (plugins.entries ?? {}) as Record<string, unknown>;
-  const uniclawEntry = (entries.uniclaw ?? {}) as Record<string, unknown>;
-  const existingPluginConfig = (uniclawEntry.config ?? {}) as Record<string, unknown>;
+  const unicityEntry = (entries.unicity ?? {}) as Record<string, unknown>;
+  const existingPluginConfig = (unicityEntry.config ?? {}) as Record<string, unknown>;
 
   const cleanNametag = (nametag as string).replace(/^@/, "").trim();
   const cleanOwner = (owner as string).replace(/^@/, "").trim() || undefined;
@@ -66,8 +66,8 @@ export async function runInteractiveSetup(
       ...plugins,
       entries: {
         ...entries,
-        uniclaw: {
-          ...uniclawEntry,
+        unicity: {
+          ...unicityEntry,
           enabled: true,
           config: updatedPluginConfig,
         },

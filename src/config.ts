@@ -1,10 +1,10 @@
-/** Uniclaw plugin configuration schema and helpers. */
+/** Unicity plugin configuration schema and helpers. */
 
 import { NAMETAG_REGEX } from "./validation.js";
 
 export type UnicityNetwork = "testnet" | "mainnet" | "dev";
 
-export type UniclawConfig = {
+export type UnicityConfig = {
   network?: UnicityNetwork;
   nametag?: string;
   owner?: string;
@@ -15,7 +15,7 @@ export type UniclawConfig = {
 
 const VALID_NETWORKS = new Set<string>(["testnet", "mainnet", "dev"]);
 
-export function resolveUniclawConfig(raw: Record<string, unknown> | undefined): UniclawConfig {
+export function resolveUnicityConfig(raw: Record<string, unknown> | undefined): UnicityConfig {
   const cfg = (raw ?? {}) as Record<string, unknown>;
   const network = typeof cfg.network === "string" && VALID_NETWORKS.has(cfg.network)
     ? (cfg.network as UnicityNetwork)
