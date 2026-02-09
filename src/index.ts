@@ -26,7 +26,7 @@ function readFreshConfig(api: OpenClawPluginApi): UnicityConfig {
     | Record<string, unknown>
     | undefined;
   const entries = (pluginRaw?.entries ?? {}) as Record<string, unknown>;
-  const unicityEntry = (entries.unicity ?? {}) as Record<string, unknown>;
+  const unicityEntry = (entries["openclaw-unicity"] ?? {}) as Record<string, unknown>;
   const raw = (unicityEntry.config ?? api.pluginConfig) as Record<string, unknown> | undefined;
   return resolveUnicityConfig(raw);
 }
@@ -35,7 +35,7 @@ function readFreshConfig(api: OpenClawPluginApi): UnicityConfig {
 let currentOwner: string | undefined;
 
 const plugin = {
-  id: "unicity",
+  id: "openclaw-unicity",
   name: "Unicity",
   description: "Unicity wallet identity and Nostr DMs via Sphere SDK",
 

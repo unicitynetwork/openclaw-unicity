@@ -1,5 +1,5 @@
 {
-  "id": "unicity",
+  "id": "openclaw-unicity",
   "channels": ["unicity"],
   "configSchema": {
     "type": "object",
