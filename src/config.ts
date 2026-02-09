@@ -30,3 +30,9 @@ export function resolveUnicityConfig(raw: Record<string, unknown> | undefined): 
   const apiKey = typeof cfg.apiKey === "string" ? cfg.apiKey : undefined;
   return { network, nametag, owner, additionalRelays, apiKey };
 }
+
+/** Environment overrides — centralized here to keep env access out of network-facing modules. */
+export const TRUSTBASE_URL = process.env.UNICITY_TRUSTBASE_URL
+  ?? "https://raw.githubusercontent.com/unicitynetwork/unicity-ids/refs/heads/main/bft-trustbase.testnet.json";
+export const FAUCET_API_URL = process.env.UNICITY_FAUCET_URL
+  ?? "https://faucet.unicity.network/api/v1/faucet/request";
