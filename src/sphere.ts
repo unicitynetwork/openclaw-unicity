@@ -5,14 +5,12 @@ import { homedir } from "node:os";
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { Sphere } from "@unicitylabs/sphere-sdk";
 import { createNodeProviders } from "@unicitylabs/sphere-sdk/impl/nodejs";
-import type { UnicityConfig } from "./config.js";
+import { TRUSTBASE_URL, type UnicityConfig } from "./config.js";
 
 export const DATA_DIR = join(homedir(), ".openclaw", "unicity");
 const TOKENS_DIR = join(DATA_DIR, "tokens");
 export const MNEMONIC_PATH = join(DATA_DIR, "mnemonic.txt");
 const TRUSTBASE_PATH = join(DATA_DIR, "trustbase.json");
-const TRUSTBASE_URL = process.env.UNICITY_TRUSTBASE_URL
-  ?? "https://raw.githubusercontent.com/unicitynetwork/unicity-ids/refs/heads/main/bft-trustbase.testnet.json";
 
 /** Default testnet API key (from Sphere app) */
 const DEFAULT_API_KEY = "sk_06365a9c44654841a366068bcfc68986";

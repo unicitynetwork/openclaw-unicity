@@ -3,9 +3,7 @@
 import { Type } from "@sinclair/typebox";
 import { getSphere } from "../sphere.js";
 import { resolveCoinId, getCoinSymbol, getAvailableSymbols } from "../assets.js";
-
-const FAUCET_API_URL = process.env.UNICITY_FAUCET_URL
-  ?? "https://faucet.unicity.network/api/v1/faucet/request";
+import { FAUCET_API_URL } from "../config.js";
 
 export const topUpTool = {
   name: "unicity_top_up",
