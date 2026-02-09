@@ -1,13 +1,13 @@
 name: Publish
 
-run-name: Publish v${{ inputs.version }}
+run-name: Publish ${{ inputs.version && format('v{0}', inputs.version) || 'patch' }}
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to publish (e.g. 0.2.0)"
-        required: true
+        description: "Version to publish (e.g. 0.2.0). Leave empty to auto-increment patch."
+        required: false
         type: string
 
 jobs:
@@ -27,8 +27,21 @@ jobs:
       - name: Install latest npm (trusted publishing requires >=11.5.1)
         run: npm install -g npm@latest
 
+      - name: Resolve version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            echo "value=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            CURRENT=$(node -p "require('./package.json').version")
+            # Increment patch: 0.1.9 -> 0.1.10, 0.2.0 -> 0.2.1
+            NEXT=$(echo "$CURRENT" | awk -F. '{printf "%d.%d.%d", $1, $2, $3+1}')
+            echo "value=$NEXT" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Publishing version: $(cat "$GITHUB_OUTPUT" | grep value | cut -d= -f2)"
+
       - name: Set version in package.json
-        run: npm version "${{ inputs.version }}" --no-git-tag-version
+        run: npm version "${{ steps.version.outputs.value }}" --no-git-tag-version
 
       - run: npm ci
 
@@ -47,15 +60,15 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add package.json
-          git commit -m "v${{ inputs.version }}"
-          git tag "v${{ inputs.version }}"
+          git commit -m "v${{ steps.version.outputs.value }}"
+          git tag "v${{ steps.version.outputs.value }}"
           git push origin HEAD:main --tags
 
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "v${{ inputs.version }}" \
-            --title "v${{ inputs.version }}" \
-            --notes "Published to npm: https://www.npmjs.com/package/@unicitylabs/openclaw-unicity/v/${{ inputs.version }}" \
-            unicitylabs-openclaw-unicity-${{ inputs.version }}.tgz
+          gh release create "v${{ steps.version.outputs.value }}" \
+            --title "v${{ steps.version.outputs.value }}" \
+            --notes "Published to npm: https://www.npmjs.com/package/@unicitylabs/openclaw-unicity/v/${{ steps.version.outputs.value }}" \
+            unicitylabs-openclaw-unicity-${{ steps.version.outputs.value }}.tgz
