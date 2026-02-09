@@ -6,6 +6,7 @@ import { waitForSphere, walletExists } from "./sphere.js";
 import { runInteractiveSetup } from "./setup.js";
 import { getCoinDecimals, toHumanReadable } from "./assets.js";
 import { VALID_RECIPIENT } from "./validation.js";
+import type { UnicityConfig } from "./config.js";
 
 const DEFAULT_ACCOUNT_ID = "default";
 
@@ -37,9 +38,15 @@ export interface ResolvedUnicityAccount {
 // Config helpers
 // ---------------------------------------------------------------------------
 
-function readChannelConfig(cfg: Record<string, unknown>): UnicityAccountConfig | undefined {
+function readChannelConfig(cfg: Record<string, unknown>): UnicityAccountConfig {
   const channels = cfg.channels as Record<string, unknown> | undefined;
-  return channels?.unicity as UnicityAccountConfig | undefined;
+  const channelCfg = channels?.unicity as UnicityAccountConfig | undefined;
+  // Merge: channel config wins, plugin config is fallback for dmPolicy/allowFrom
+  return {
+    ...channelCfg,
+    dmPolicy: channelCfg?.dmPolicy ?? pluginConfig.dmPolicy,
+    allowFrom: channelCfg?.allowFrom ?? pluginConfig.allowFrom,
+  };
 }
 
 export function listUnicityAccountIds(_cfg: Record<string, unknown>): string[] {
@@ -55,7 +62,7 @@ export function resolveUnicityAccount(opts: {
 }): ResolvedUnicityAccount {
   const accountId = opts.accountId ?? DEFAULT_ACCOUNT_ID;
   const ucfg = readChannelConfig(opts.cfg);
-  const enabled = ucfg?.enabled !== false;
+  const enabled = ucfg.enabled !== false;
   const sphere = opts.sphere ?? null;
 
   return {
@@ -65,7 +72,7 @@ export function resolveUnicityAccount(opts: {
     configured: sphere?.identity?.chainPubkey != null,
     publicKey: sphere?.identity?.chainPubkey ?? "",
     nametag: sphere?.identity?.nametag ?? ucfg?.nametag,
-    config: ucfg ?? {},
+    config: ucfg,
   };
 }
 
@@ -76,12 +83,16 @@ export function resolveUnicityAccount(opts: {
 let activeSphere: Sphere | null = null;
 let pluginRuntime: PluginRuntime | null = null;
 let ownerIdentity: string | null = null;
+let pluginConfig: UnicityConfig = {};
 
 export function setUnicityRuntime(rt: PluginRuntime): void {
   pluginRuntime = rt;
 }
 export function setOwnerIdentity(owner: string | undefined): void {
   ownerIdentity = owner ?? null;
+}
+export function setPluginConfig(cfg: UnicityConfig): void {
+  pluginConfig = cfg;
 }
 export function getOwnerIdentity(): string | null {
   return ownerIdentity;
@@ -445,9 +456,9 @@ export const unicityChannelPlugin = {
     resolveDmPolicy: (params: { account: ResolvedUnicityAccount }) => ({
       policy: params.account.config.dmPolicy ?? "open",
       allowFrom: params.account.config.allowFrom ?? [],
-      policyPath: "channels.unicity.dmPolicy",
-      allowFromPath: "channels.unicity.allowFrom",
-      approveHint: 'openclaw config set channels.unicity.allowFrom \'["<pubkey-or-nametag>"]\'',
+      policyPath: "plugins.entries.openclaw-unicity.config.dmPolicy",
+      allowFromPath: "plugins.entries.openclaw-unicity.config.allowFrom",
+      approveHint: 'openclaw config set plugins.entries.openclaw-unicity.config.allowFrom \'["<pubkey-or-nametag>"]\'',
     }),
   },
 

@@ -4,6 +4,8 @@ import { NAMETAG_REGEX } from "./validation.js";
 
 export type UnicityNetwork = "testnet" | "mainnet" | "dev";
 
+export type DmPolicy = "open" | "allowlist" | "pairing" | "disabled";
+
 export type UnicityConfig = {
   network?: UnicityNetwork;
   nametag?: string;
@@ -11,6 +13,10 @@ export type UnicityConfig = {
   additionalRelays?: string[];
   /** Aggregator API key (defaults to testnet key) */
   apiKey?: string;
+  /** DM access control policy */
+  dmPolicy?: DmPolicy;
+  /** Allowed senders when dmPolicy is "allowlist" */
+  allowFrom?: string[];
 };
 
 const VALID_NETWORKS = new Set<string>(["testnet", "mainnet", "dev"]);
@@ -28,7 +34,14 @@ export function resolveUnicityConfig(raw: Record<string, unknown> | undefined): 
     ? cfg.additionalRelays.filter((r): r is string => typeof r === "string")
     : undefined;
   const apiKey = typeof cfg.apiKey === "string" ? cfg.apiKey : undefined;
-  return { network, nametag, owner, additionalRelays, apiKey };
+  const VALID_DM_POLICIES = new Set<string>(["open", "allowlist", "pairing", "disabled"]);
+  const dmPolicy = typeof cfg.dmPolicy === "string" && VALID_DM_POLICIES.has(cfg.dmPolicy)
+    ? (cfg.dmPolicy as DmPolicy)
+    : undefined;
+  const allowFrom = Array.isArray(cfg.allowFrom)
+    ? cfg.allowFrom.filter((v): v is string => typeof v === "string")
+    : undefined;
+  return { network, nametag, owner, additionalRelays, apiKey, dmPolicy, allowFrom };
 }
 
 /** Environment overrides — centralized here to keep env access out of network-facing modules. */

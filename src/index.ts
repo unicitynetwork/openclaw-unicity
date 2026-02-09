@@ -8,6 +8,7 @@ import {
   setUnicityRuntime,
   setActiveSphere,
   setOwnerIdentity,
+  setPluginConfig,
 } from "./channel.js";
 import { sendMessageTool } from "./tools/send-message.js";
 import { getBalanceTool } from "./tools/get-balance.js";
@@ -43,9 +44,10 @@ const plugin = {
     const cfg = resolveUnicityConfig(api.pluginConfig);
     currentOwner = cfg.owner;
 
-    // Store runtime and owner for the channel plugin to use
+    // Store runtime, owner, and plugin config for the channel plugin to use
     setUnicityRuntime(api.runtime);
     setOwnerIdentity(cfg.owner);
+    setPluginConfig(cfg);
 
     // Channel
     api.registerChannel({ plugin: unicityChannelPlugin });
@@ -70,6 +72,7 @@ const plugin = {
         const freshCfg = readFreshConfig(api);
         currentOwner = freshCfg.owner;
         setOwnerIdentity(freshCfg.owner);
+        setPluginConfig(freshCfg);
 
         const result = await initSphere(freshCfg, api.logger);
         setActiveSphere(result.sphere);

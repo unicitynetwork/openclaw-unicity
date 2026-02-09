@@ -70,7 +70,6 @@ If you prefer to edit config directly, add to `~/.openclaw/openclaw.json`:
 
 ```json5
 {
-  // Plugin settings (identity, owner, network)
   "plugins": {
     "entries": {
       "openclaw-unicity": {
@@ -81,18 +80,11 @@ If you prefer to edit config directly, add to `~/.openclaw/openclaw.json`:
           "network": "testnet",         // testnet (default) | mainnet | dev
           "additionalRelays": [         // Optional: extra Nostr relays
             "wss://custom-relay.example.com"
-          ]
+          ],
+          "dmPolicy": "open",            // open | pairing | allowlist | disabled
+          "allowFrom": ["@trusted-user"] // Required when dmPolicy is "allowlist"
         }
       }
-    }
-  },
-
-  // Channel settings (DM access control)
-  "channels": {
-    "unicity": {
-      "enabled": true,
-      "dmPolicy": "open",            // open | pairing | allowlist | disabled
-      "allowFrom": ["@trusted-user"] // Required when dmPolicy is "allowlist"
     }
   }
 }

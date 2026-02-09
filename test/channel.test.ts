@@ -60,7 +60,7 @@ describe("unicityChannelPlugin shape", () => {
       account: { config: {} } as ResolvedUnicityAccount,
     });
     expect(policy.policy).toBe("open");
-    expect(policy.allowFromPath).toBe("channels.unicity.allowFrom");
+    expect(policy.allowFromPath).toBe("plugins.entries.openclaw-unicity.config.allowFrom");
   });
 
   it("resolves allowlist policy with allowFrom list", () => {

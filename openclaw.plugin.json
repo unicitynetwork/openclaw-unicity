@@ -20,6 +20,17 @@
       "additionalRelays": {
         "type": "array",
         "items": { "type": "string" }
+      },
+      "dmPolicy": {
+        "type": "string",
+        "enum": ["open", "allowlist", "pairing", "disabled"],
+        "default": "open",
+        "description": "DM access control policy. 'open' allows anyone, 'allowlist' restricts to allowFrom list, 'pairing' requires mutual opt-in, 'disabled' blocks all inbound DMs."
+      },
+      "allowFrom": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "List of nametags or public keys allowed to DM when dmPolicy is 'allowlist'."
       }
     }
   }
