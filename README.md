@@ -73,7 +73,7 @@ If you prefer to edit config directly, add to `~/.openclaw/openclaw.json`:
   // Plugin settings (identity, owner, network)
   "plugins": {
     "entries": {
-      "unicity": {
+      "openclaw-unicity": {
         "enabled": true,
         "config": {
           "nametag": "my-agent",        // Optional: register a @nametag

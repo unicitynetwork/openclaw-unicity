@@ -62,7 +62,7 @@ describe("plugin definition", () => {
   });
 
   it("has correct id and name", () => {
-    expect(plugin.id).toBe("unicity");
+    expect(plugin.id).toBe("openclaw-unicity");
     expect(plugin.name).toBe("Unicity");
   });
 
@@ -149,7 +149,7 @@ describe("plugin definition", () => {
     // Register with initial owner "alice"
     const api = makeApi({
       runtimeConfig: {
-        plugins: { entries: { unicity: { config: { network: "testnet", owner: "bob" } } } },
+        plugins: { entries: { "openclaw-unicity": { config: { network: "testnet", owner: "bob" } } } },
       },
     });
     api.pluginConfig = { network: "testnet", owner: "alice" };

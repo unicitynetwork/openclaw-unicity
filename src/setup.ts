@@ -39,10 +39,10 @@ export async function runInteractiveSetup(
 
   const fullConfig = runtime.loadConfig() as Record<string, unknown>;
 
-  // Ensure plugins.entries.unicity.config exists
+  // Ensure plugins.entries.openclaw-unicity.config exists
   const plugins = (fullConfig.plugins ?? {}) as Record<string, unknown>;
   const entries = (plugins.entries ?? {}) as Record<string, unknown>;
-  const unicityEntry = (entries.unicity ?? {}) as Record<string, unknown>;
+  const unicityEntry = (entries["openclaw-unicity"] ?? {}) as Record<string, unknown>;
   const existingPluginConfig = (unicityEntry.config ?? {}) as Record<string, unknown>;
 
   const cleanNametag = (nametag as string).replace(/^@/, "").trim();
@@ -66,7 +66,7 @@ export async function runInteractiveSetup(
       ...plugins,
       entries: {
         ...entries,
-        unicity: {
+        "openclaw-unicity": {
           ...unicityEntry,
           enabled: true,
           config: updatedPluginConfig,
