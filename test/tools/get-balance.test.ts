@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const mockGetBalance = vi.fn();
+const mockGetAssets = vi.fn();
 const mockGetSphere = vi.fn();
 const mockToHumanReadable = vi.fn();
 const mockGetCoinDecimals = vi.fn();
@@ -20,7 +20,7 @@ describe("getBalanceTool", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetSphere.mockReturnValue({
-      payments: { getBalance: mockGetBalance },
+      payments: { getAssets: mockGetAssets },
     });
     mockToHumanReadable.mockImplementation((amount: string) => amount);
   });
@@ -31,30 +31,30 @@ describe("getBalanceTool", () => {
   });
 
   it("returns formatted balance lines", async () => {
-    mockGetBalance.mockReturnValue([
+    mockGetAssets.mockResolvedValue([
       { coinId: "ALPHA", symbol: "ALPHA", name: "Alpha", totalAmount: "500", tokenCount: 3, decimals: 0 },
       { coinId: "BETA", symbol: "BETA", name: "Beta", totalAmount: "100", tokenCount: 1, decimals: 0 },
     ]);
 
     const result = await getBalanceTool.execute("call-1", {});
 
-    expect(mockGetBalance).toHaveBeenCalledWith(undefined);
+    expect(mockGetAssets).toHaveBeenCalledWith(undefined);
     expect(result.content[0].text).toContain("Alpha (ALPHA): 500 (3 tokens)");
     expect(result.content[0].text).toContain("Beta (BETA): 100 (1 token)");
   });
 
   it("filters by coinId when provided", async () => {
-    mockGetBalance.mockReturnValue([
+    mockGetAssets.mockResolvedValue([
       { coinId: "ALPHA", symbol: "ALPHA", name: "Alpha", totalAmount: "500", tokenCount: 3, decimals: 0 },
     ]);
 
     await getBalanceTool.execute("call-2", { coinId: "ALPHA" });
 
-    expect(mockGetBalance).toHaveBeenCalledWith("ALPHA");
+    expect(mockGetAssets).toHaveBeenCalledWith("ALPHA");
   });
 
   it("returns empty message when no balances", async () => {
-    mockGetBalance.mockReturnValue([]);
+    mockGetAssets.mockResolvedValue([]);
 
     const result = await getBalanceTool.execute("call-3", {});
     expect(result.content[0].text).toContain("no tokens");
@@ -62,7 +62,7 @@ describe("getBalanceTool", () => {
 
   it("uses asset registry decimals over SDK decimals", async () => {
     mockGetCoinDecimals.mockReturnValue(18);
-    mockGetBalance.mockReturnValue([
+    mockGetAssets.mockResolvedValue([
       { coinId: "455ad8...", symbol: "UCT", name: "unicity", totalAmount: "10000000000000000000", tokenCount: 1, decimals: 8 },
     ]);
 
@@ -74,7 +74,7 @@ describe("getBalanceTool", () => {
 
   it("falls back to SDK decimals when registry has no entry", async () => {
     mockGetCoinDecimals.mockReturnValue(undefined);
-    mockGetBalance.mockReturnValue([
+    mockGetAssets.mockResolvedValue([
       { coinId: "unknown", symbol: "???", name: "unknown", totalAmount: "100", tokenCount: 1, decimals: 6 },
     ]);
 
@@ -84,7 +84,7 @@ describe("getBalanceTool", () => {
   });
 
   it("returns coin-specific empty message when coinId provided", async () => {
-    mockGetBalance.mockReturnValue([]);
+    mockGetAssets.mockResolvedValue([]);
 
     const result = await getBalanceTool.execute("call-4", { coinId: "ALPHA" });
     expect(result.content[0].text).toContain("No balance found for ALPHA");

@@ -13,7 +13,7 @@ export const getBalanceTool = {
   }),
   async execute(_toolCallId: string, params: { coinId?: string }) {
     const sphere = getSphere();
-    const balances = sphere.payments.getBalance(params.coinId);
+    const balances = await sphere.payments.getAssets(params.coinId);
 
     if (balances.length === 0) {
       return {
