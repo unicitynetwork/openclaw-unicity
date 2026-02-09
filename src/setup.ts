@@ -60,6 +60,9 @@ export async function runInteractiveSetup(
     delete updatedPluginConfig.owner;
   }
 
+  const channels = (fullConfig.channels ?? {}) as Record<string, unknown>;
+  const existingChannel = (channels.unicity ?? {}) as Record<string, unknown>;
+
   const updatedConfig = {
     ...fullConfig,
     plugins: {
@@ -71,6 +74,13 @@ export async function runInteractiveSetup(
           enabled: true,
           config: updatedPluginConfig,
         },
+      },
+    },
+    channels: {
+      ...channels,
+      unicity: {
+        enabled: true,
+        ...existingChannel,
       },
     },
   };
