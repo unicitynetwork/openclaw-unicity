@@ -224,7 +224,7 @@ describe("gateway.startAccount", () => {
     });
 
     const ctx = mockRuntime.channel.reply.finalizeInboundContext.mock.calls[0][0];
-    expect(ctx.Body).toBe("[from: @alice (contact)]\nHello agent!");
+    expect(ctx.Body).toBe("Hello agent!");
     expect(ctx.From).toBe("@alice");
     expect(ctx.SessionKey).toBe("unicity:dm:@alice");
     expect(ctx.ChatType).toBe("direct");
