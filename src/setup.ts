@@ -28,14 +28,7 @@ export async function runInteractiveSetup(
     placeholder: "leave empty if no owner",
   });
 
-  const network = await prompter.select({
-    message: "Network:",
-    options: [
-      { value: "testnet", label: "testnet" },
-      { value: "mainnet", label: "mainnet" },
-    ],
-    initialValue: "testnet",
-  });
+  const network = "testnet";
 
   const fullConfig = runtime.loadConfig() as Record<string, unknown>;
 
