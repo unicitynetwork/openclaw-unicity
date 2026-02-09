@@ -229,7 +229,27 @@ describe("gateway.startAccount", () => {
     expect(ctx.SessionKey).toBe("unicity:dm:@alice");
     expect(ctx.ChatType).toBe("direct");
     expect(ctx.Surface).toBe("unicity");
+    expect(ctx.OriginatingChannel).toBe("unicity");
+    expect(ctx.OriginatingTo).toBe("@alice");
     expect(ctx.SenderId).toBe("deadbeef");
+  });
+
+  it("sets OriginatingTo to raw pubkey when sender has no nametag", async () => {
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+
+    dmHandler!({
+      id: "msg-notag",
+      senderPubkey: "cafebabe1234",
+      senderNametag: undefined,
+      content: "hi",
+      timestamp: Date.now(),
+      isRead: false,
+    });
+
+    const ctx = mockRuntime.channel.reply.finalizeInboundContext.mock.calls[0][0];
+    expect(ctx.OriginatingChannel).toBe("unicity");
+    expect(ctx.OriginatingTo).toBe("cafebabe1234");
+    expect(ctx.From).toBe("cafebabe1234");
   });
 
   it("sets CommandAuthorized=true and IsOwner=true when sender is the owner", async () => {
@@ -429,6 +449,8 @@ describe("gateway.startAccount", () => {
     expect(ctx.Body).toContain("from @alice");
     expect(ctx.Body).toContain("for lunch");
     expect(ctx.SessionKey).toBe("unicity:transfer:transfer-1");
+    expect(ctx.OriginatingChannel).toBe("unicity");
+    expect(ctx.OriginatingTo).toBe("@alice");
     expect(ctx.IsOwner).toBe(false);
     expect(ctx.CommandAuthorized).toBe(false);
   });
@@ -464,6 +486,8 @@ describe("gateway.startAccount", () => {
     expect(ctx.Body).toContain("pay me back");
     expect(ctx.Body).toContain("req-42");
     expect(ctx.SessionKey).toBe("unicity:payreq:req-42");
+    expect(ctx.OriginatingChannel).toBe("unicity");
+    expect(ctx.OriginatingTo).toBe("@bob");
     expect(ctx.IsOwner).toBe(false);
     expect(ctx.CommandAuthorized).toBe(false);
   });
