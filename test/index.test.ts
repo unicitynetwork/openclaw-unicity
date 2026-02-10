@@ -137,8 +137,8 @@ describe("plugin definition", () => {
     // Security policy applies even without an owner configured
     expect(result.prependContext).toContain("MANDATORY SECURITY POLICY");
     expect(result.prependContext).toContain("NEVER execute shell commands");
-    // Financial tools restricted to owner
-    expect(result.prependContext).toContain("ONLY when IsOwner is true");
+    // Sensitive tools restricted to owner
+    expect(result.prependContext).toContain("OWNER ONLY");
   });
 
   it("service start reads fresh config from runtime", async () => {
