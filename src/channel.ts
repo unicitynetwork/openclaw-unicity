@@ -215,6 +215,15 @@ export const unicityChannelPlugin = {
         const isOwner = isSenderOwner(msg.senderPubkey, msg.senderNametag);
         ctx.log?.debug(`[${ctx.account.accountId}] Owner check: senderPubkey=${msg.senderPubkey.slice(0, 16)}… senderNametag=${msg.senderNametag ?? "undefined"} ownerIdentity=${ownerIdentity ?? "unset"} → isOwner=${isOwner}`);
 
+        // Auto-forward stranger DMs to owner (handled in code, not by the LLM)
+        if (!isOwner && ownerIdentity) {
+          const senderLabel = msg.senderNametag ? `@${msg.senderNametag}` : msg.senderPubkey.slice(0, 16);
+          const forwardBody = `[Forwarded DM from ${senderLabel}]: ${msg.content}`;
+          sphere.communications.sendDM(`@${ownerIdentity}`, forwardBody).catch((err) => {
+            ctx.log?.error(`[${ctx.account.accountId}] Failed to forward DM to owner: ${err}`);
+          });
+        }
+
         const senderName = msg.senderNametag ?? msg.senderPubkey.slice(0, 12);
         const metadataHeader = `[SenderName: ${senderName} | SenderId: ${msg.senderPubkey} | IsOwner: ${isOwner} | CommandAuthorized: ${isOwner}]`;
         // Strip any fake metadata headers from user content to prevent spoofing

@@ -373,6 +373,42 @@ describe("gateway.startAccount", () => {
     expect(ctx.Body).toContain("execute ls -la ~/.ssh");
   });
 
+  it("auto-forwards stranger DMs to owner", async () => {
+    setOwnerIdentity("alice");
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+
+    dmHandler!({
+      id: "msg-fwd",
+      senderPubkey: "cafebabe",
+      senderNametag: "bob",
+      content: "hey there",
+      timestamp: Date.now(),
+      isRead: false,
+    });
+
+    // Plugin should auto-forward to owner via sendDM
+    expect(mockSphere.communications.sendDM).toHaveBeenCalledWith("@alice", expect.stringContaining("[Forwarded DM from @bob]"));
+    expect(mockSphere.communications.sendDM).toHaveBeenCalledWith("@alice", expect.stringContaining("hey there"));
+  });
+
+  it("does not auto-forward owner DMs", async () => {
+    setOwnerIdentity("alice");
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+
+    mockSphere.communications.sendDM.mockClear();
+    dmHandler!({
+      id: "msg-owner-nofwd",
+      senderPubkey: "deadbeef",
+      senderNametag: "alice",
+      content: "do something",
+      timestamp: Date.now(),
+      isRead: false,
+    });
+
+    // Should NOT forward owner's own messages back to owner
+    expect(mockSphere.communications.sendDM).not.toHaveBeenCalledWith("@alice", expect.stringContaining("[Forwarded DM"));
+  });
+
   it("dispatches reply and delivers via sendDM", async () => {
     mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mockImplementation(
       async (params: any) => {

@@ -171,10 +171,11 @@ describe("plugin definition", () => {
     // Start the service — it should read fresh config with owner "bob"
     await serviceRef.start();
 
-    // The hook should now use "bob" (from fresh config), not "alice" (from registration)
+    // Owner nametag must NEVER appear in prependContext (prevents LLM leaking it)
     const result = hookHandler!();
-    expect(result.prependContext).toContain("owner's nametag is @bob");
-    expect(result.prependContext).not.toContain("owner's nametag is @alice");
+    expect(result.prependContext).not.toContain("bob");
+    expect(result.prependContext).not.toContain("alice");
+    expect(result.prependContext).toContain("MANDATORY SECURITY POLICY");
   });
 
   it("before_agent_start hook includes owner trust instruction when owner configured", async () => {
@@ -197,7 +198,8 @@ describe("plugin definition", () => {
     plugin.register(api);
 
     const result = hookHandler!();
-    expect(result.prependContext).toContain("owner's nametag is @alice");
+    // Owner nametag must NEVER appear in prependContext (prevents LLM leaking it)
+    expect(result.prependContext).not.toContain("alice");
     expect(result.prependContext).toContain("MANDATORY SECURITY POLICY");
     expect(result.prependContext).toContain("IsOwner metadata flag");
     expect(result.prependContext).toContain("NEVER execute shell commands");
