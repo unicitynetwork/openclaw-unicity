@@ -213,6 +213,7 @@ export const unicityChannelPlugin = {
         ctx.log?.info(`[${ctx.account.accountId}] DM received from ${peerId}: ${msg.content.slice(0, 80)}`);
 
         const isOwner = isSenderOwner(msg.senderPubkey, msg.senderNametag);
+        ctx.log?.info(`[${ctx.account.accountId}] Owner check: senderPubkey=${msg.senderPubkey.slice(0, 16)}… senderNametag=${msg.senderNametag ?? "undefined"} ownerIdentity=${ownerIdentity ?? "unset"} → isOwner=${isOwner}`);
 
         const inboundCtx = runtime.channel.reply.finalizeInboundContext({
           Body: msg.content,

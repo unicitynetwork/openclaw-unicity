@@ -306,6 +306,27 @@ describe("gateway.startAccount", () => {
     expect(ctx.CommandAuthorized).toBe(true);
   });
 
+  it("IsOwner=false when owner is nametag but SDK only provides pubkey (nametag not resolved)", async () => {
+    setOwnerIdentity("alice");
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+
+    dmHandler!({
+      id: "msg-no-nametag",
+      senderPubkey: "deadbeef1234abcd",
+      senderNametag: undefined,
+      content: "do something",
+      timestamp: Date.now(),
+      isRead: false,
+    });
+
+    const ctx = mockRuntime.channel.reply.finalizeInboundContext.mock.calls[0][0];
+    // This is the real-world failure: owner configured as nametag, SDK didn't resolve
+    // sender nametag, so we can only compare pubkey vs nametag — which never matches.
+    // Currently this returns false (bug), but documents the actual behavior.
+    expect(ctx.IsOwner).toBe(false);
+    expect(ctx.CommandAuthorized).toBe(false);
+  });
+
   it("CommandAuthorized=false when no owner is configured", async () => {
     setOwnerIdentity(undefined);
     await unicityChannelPlugin.gateway.startAccount(mockCtx);
