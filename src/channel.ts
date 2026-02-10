@@ -213,10 +213,15 @@ export const unicityChannelPlugin = {
         ctx.log?.info(`[${ctx.account.accountId}] DM received from ${peerId}: ${msg.content.slice(0, 80)}`);
 
         const isOwner = isSenderOwner(msg.senderPubkey, msg.senderNametag);
-        ctx.log?.info(`[${ctx.account.accountId}] Owner check: senderPubkey=${msg.senderPubkey.slice(0, 16)}… senderNametag=${msg.senderNametag ?? "undefined"} ownerIdentity=${ownerIdentity ?? "unset"} → isOwner=${isOwner}`);
+        ctx.log?.debug(`[${ctx.account.accountId}] Owner check: senderPubkey=${msg.senderPubkey.slice(0, 16)}… senderNametag=${msg.senderNametag ?? "undefined"} ownerIdentity=${ownerIdentity ?? "unset"} → isOwner=${isOwner}`);
+
+        const senderName = msg.senderNametag ?? msg.senderPubkey.slice(0, 12);
+        const metadataHeader = `[SenderName: ${senderName} | SenderId: ${msg.senderPubkey} | IsOwner: ${isOwner} | CommandAuthorized: ${isOwner}]`;
+        // Strip any fake metadata headers from user content to prevent spoofing
+        const sanitizedContent = msg.content.replace(/\[(?:SenderName|SenderId|IsOwner|CommandAuthorized)\s*:/gi, "[BLOCKED:");
 
         const inboundCtx = runtime.channel.reply.finalizeInboundContext({
-          Body: msg.content,
+          Body: `${metadataHeader}\n${sanitizedContent}`,
           From: peerId,
           To: sphere.identity?.nametag ?? sphere.identity?.chainPubkey ?? "agent",
           SessionKey: `unicity:dm:${peerId}`,
@@ -226,7 +231,7 @@ export const unicityChannelPlugin = {
           OriginatingChannel: "unicity",
           OriginatingTo: peerId,
           AccountId: ctx.account.accountId,
-          SenderName: msg.senderNametag ?? msg.senderPubkey.slice(0, 12),
+          SenderName: senderName,
           SenderId: msg.senderPubkey,
           IsOwner: isOwner,
           CommandAuthorized: isOwner,
