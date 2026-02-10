@@ -1,24 +1,18 @@
 /** Sphere SDK singleton — wallet identity and communications. */
 
-import { join } from "node:path";
-import { homedir } from "node:os";
-import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { Sphere } from "@unicitylabs/sphere-sdk";
 import { createNodeProviders } from "@unicitylabs/sphere-sdk/impl/nodejs";
 import { TRUSTBASE_URL, type UnicityConfig } from "./config.js";
+import {
+  DATA_DIR, TOKENS_DIR, TRUSTBASE_PATH, MNEMONIC_PATH,
+  ensureDirs, walletExists, trustbaseExists,
+  readMnemonic, saveMnemonic, saveTrustbase,
+} from "./storage.js";
 
-export const DATA_DIR = join(homedir(), ".openclaw", "unicity");
-const TOKENS_DIR = join(DATA_DIR, "tokens");
-export const MNEMONIC_PATH = join(DATA_DIR, "mnemonic.txt");
-const TRUSTBASE_PATH = join(DATA_DIR, "trustbase.json");
+export { DATA_DIR, MNEMONIC_PATH, walletExists };
 
 /** Default testnet API key (from Sphere app) */
 const DEFAULT_API_KEY = "sk_06365a9c44654841a366068bcfc68986";
-
-/** Check whether a wallet has been initialized (mnemonic file exists). */
-export function walletExists(): boolean {
-  return existsSync(MNEMONIC_PATH);
-}
 
 let sphereInstance: Sphere | null = null;
 let initPromise: Promise<InitSphereResult> | null = null;
@@ -68,7 +62,7 @@ export async function initSphere(
 }
 
 async function ensureTrustbase(logger?: SphereLogger): Promise<void> {
-  if (existsSync(TRUSTBASE_PATH)) return;
+  if (trustbaseExists()) return;
 
   const log = logger ?? console;
   log.info(`[unicity] Downloading trustbase from ${TRUSTBASE_URL}...`);
@@ -78,7 +72,7 @@ async function ensureTrustbase(logger?: SphereLogger): Promise<void> {
     throw new Error(`Failed to download trustbase: ${res.status} ${res.statusText}`);
   }
   const data = await res.text();
-  writeFileSync(TRUSTBASE_PATH, data, { mode: 0o644 });
+  saveTrustbase(data);
   log.info(`[unicity] Trustbase saved to ${TRUSTBASE_PATH}`);
 }
 
@@ -86,8 +80,7 @@ async function doInitSphere(
   cfg: UnicityConfig,
   logger?: SphereLogger,
 ): Promise<InitSphereResult> {
-  mkdirSync(DATA_DIR, { recursive: true });
-  mkdirSync(TOKENS_DIR, { recursive: true });
+  ensureDirs();
 
   // Download trustbase if not present
   await ensureTrustbase(logger);
@@ -111,9 +104,7 @@ async function doInitSphere(
   // If a mnemonic backup exists, pass it so the SDK restores the same wallet
   // even if its internal storage was lost. Without this, autoGenerate would
   // create a brand-new wallet with a different mnemonic.
-  const existingMnemonic = existsSync(MNEMONIC_PATH)
-    ? readFileSync(MNEMONIC_PATH, "utf-8").trim()
-    : undefined;
+  const existingMnemonic = readMnemonic();
 
   const result = await Sphere.init({
     ...providers,
@@ -124,7 +115,7 @@ async function doInitSphere(
   sphereInstance = result.sphere;
 
   if (result.created && result.generatedMnemonic) {
-    writeFileSync(MNEMONIC_PATH, result.generatedMnemonic + "\n", { mode: 0o600 });
+    saveMnemonic(result.generatedMnemonic);
     const log = logger ?? console;
     log.info(`[unicity] Mnemonic saved to ${MNEMONIC_PATH}`);
   }
