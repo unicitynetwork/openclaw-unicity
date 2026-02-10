@@ -1,6 +1,6 @@
 {
   "name": "@unicitylabs/openclaw-unicity",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "description": "Unicity wallet identity and encrypted DMs for OpenClaw agents — powered by Sphere SDK",
   "type": "module",
   "main": "src/index.ts",
