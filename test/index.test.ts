@@ -71,7 +71,7 @@ describe("plugin definition", () => {
     plugin.register(api);
 
     expect(api.registerChannel).toHaveBeenCalledOnce();
-    expect(api.registerTool).toHaveBeenCalledTimes(9);
+    expect(api.registerTool).toHaveBeenCalledTimes(15);
     expect(api.registerTool).toHaveBeenCalledWith(
       expect.objectContaining({ name: "unicity_send_message" }),
     );

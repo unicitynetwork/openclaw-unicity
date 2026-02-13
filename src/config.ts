@@ -17,6 +17,8 @@ export type UnicityConfig = {
   dmPolicy?: DmPolicy;
   /** Allowed senders when dmPolicy is "allowlist" */
   allowFrom?: string[];
+  /** Enable NIP-29 group chat. true = enabled with network defaults; object = custom relays. */
+  groupChat?: boolean | { relays?: string[] };
 };
 
 const VALID_NETWORKS = new Set<string>(["testnet", "mainnet", "dev"]);
@@ -41,7 +43,13 @@ export function resolveUnicityConfig(raw: Record<string, unknown> | undefined): 
   const allowFrom = Array.isArray(cfg.allowFrom)
     ? cfg.allowFrom.filter((v): v is string => typeof v === "string")
     : undefined;
-  return { network, nametag, owner, additionalRelays, apiKey, dmPolicy, allowFrom };
+  const rawGroupChat = cfg.groupChat;
+  const groupChat = rawGroupChat === false
+    ? false
+    : rawGroupChat != null && typeof rawGroupChat === "object" && !Array.isArray(rawGroupChat)
+      ? { relays: Array.isArray((rawGroupChat as Record<string, unknown>).relays) ? ((rawGroupChat as Record<string, unknown>).relays as unknown[]).filter((r): r is string => typeof r === "string") : undefined }
+      : true;
+  return { network, nametag, owner, additionalRelays, apiKey, dmPolicy, allowFrom, groupChat };
 }
 
 /** Environment overrides — centralized here to keep env access out of network-facing modules. */

@@ -106,10 +106,16 @@ async function doInitSphere(
   // create a brand-new wallet with a different mnemonic.
   const existingMnemonic = readMnemonic();
 
+  const groupChat = cfg.groupChat !== false;
+  const groupChatRelays = typeof cfg.groupChat === "object" && cfg.groupChat?.relays
+    ? cfg.groupChat.relays
+    : undefined;
+
   const result = await Sphere.init({
     ...providers,
     ...(existingMnemonic ? { mnemonic: existingMnemonic } : { autoGenerate: true }),
     ...(cfg.nametag ? { nametag: cfg.nametag } : {}),
+    ...(groupChat ? { groupChat: groupChatRelays ? { relays: groupChatRelays } : true } : {}),
   });
 
   sphereInstance = result.sphere;

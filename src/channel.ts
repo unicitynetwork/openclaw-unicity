@@ -108,6 +108,15 @@ export function getActiveSphere(): Sphere | null {
   return activeSphere;
 }
 
+function isKnownGroupId(sphere: Sphere, target: string): boolean {
+  try {
+    const groups = sphere.groupChat?.getGroups?.() ?? [];
+    return groups.some((g: { id: string }) => g.id === target);
+  } catch {
+    return false;
+  }
+}
+
 function isSenderOwner(senderPubkey: string, senderNametag?: string): boolean {
   if (!ownerIdentity) return false;
   const normalized = ownerIdentity.replace(/^@/, "").toLowerCase();
@@ -133,7 +142,8 @@ export const unicityChannelPlugin = {
   },
 
   capabilities: {
-    chatTypes: ["direct" as const],
+    chatTypes: ["direct" as const, "group" as const],
+    groupManagement: true,
     media: false,
   },
 
@@ -172,7 +182,13 @@ export const unicityChannelPlugin = {
     }) => {
       const sphere = activeSphere ?? await waitForSphere();
       if (!sphere) throw new Error("Unicity Sphere not initialized");
-      await sphere.communications.sendDM(ctx.to, ctx.text ?? "");
+
+      // Check if target is a known group id
+      if (isKnownGroupId(sphere, ctx.to)) {
+        await sphere.groupChat.sendMessage(ctx.to, ctx.text ?? "");
+      } else {
+        await sphere.communications.sendDM(ctx.to, ctx.text ?? "");
+      }
       return { channel: "unicity", to: ctx.to };
     },
   },
@@ -406,10 +422,112 @@ export const unicityChannelPlugin = {
           });
       });
 
+      // Subscribe to incoming group messages
+      const unsubGroupMessage = sphere.groupChat?.onMessage?.((msg: {
+        id: string;
+        groupId: string;
+        groupName?: string;
+        senderPubkey: string;
+        senderNametag?: string;
+        content: string;
+        timestamp?: number;
+      }) => {
+        // Skip messages from self
+        if (msg.senderPubkey === sphere.identity?.chainPubkey) return;
+
+        const senderName = msg.senderNametag ?? msg.senderPubkey.slice(0, 12);
+        const groupName = msg.groupName ?? msg.groupId;
+        const isOwner = isSenderOwner(msg.senderPubkey, msg.senderNametag);
+        const metadataHeader = `[SenderName: ${senderName} | SenderId: ${msg.senderPubkey} | GroupId: ${msg.groupId} | GroupName: ${groupName} | IsOwner: ${isOwner} | CommandAuthorized: ${isOwner}]`;
+        const sanitizedContent = msg.content.replace(/\[(?:SenderName|SenderId|IsOwner|CommandAuthorized|GroupId|GroupName)\s*:/gi, "[BLOCKED:");
+
+        ctx.log?.info(`[${ctx.account.accountId}] Group message from ${senderName} in ${groupName}: ${msg.content.slice(0, 80)}`);
+
+        const inboundCtx = runtime.channel.reply.finalizeInboundContext({
+          Body: `${metadataHeader}\n${sanitizedContent}`,
+          From: msg.senderNametag ? `@${msg.senderNametag}` : msg.senderPubkey,
+          To: sphere.identity?.nametag ?? sphere.identity?.chainPubkey ?? "agent",
+          SessionKey: `unicity:group:${msg.groupId}`,
+          ChatType: "group",
+          GroupSubject: groupName,
+          Surface: "unicity",
+          Provider: "unicity",
+          OriginatingChannel: "unicity",
+          OriginatingTo: msg.groupId,
+          AccountId: ctx.account.accountId,
+          SenderName: senderName,
+          SenderId: msg.senderPubkey,
+          IsOwner: isOwner,
+          CommandAuthorized: isOwner,
+        });
+
+        runtime.channel.reply
+          .dispatchReplyWithBufferedBlockDispatcher({
+            ctx: inboundCtx,
+            cfg: ctx.cfg,
+            dispatcherOptions: {
+              deliver: async (payload: { text?: string }) => {
+                const text = payload.text;
+                if (!text) return;
+                try {
+                  await sphere.groupChat.sendMessage(msg.groupId, text);
+                  ctx.log?.info(`[${ctx.account.accountId}] Group message sent to ${groupName}: ${text.slice(0, 80)}`);
+                } catch (err) {
+                  ctx.log?.error(`[${ctx.account.accountId}] Failed to send group message to ${groupName}: ${err}`);
+                }
+              },
+              onSkip: (payload: { text?: string }, info: { kind: string; reason: string }) => {
+                ctx.log?.warn(`[${ctx.account.accountId}] Group reply SKIPPED: kind=${info.kind} reason=${info.reason}`);
+              },
+              onError: (err: unknown, info: { kind: string }) => {
+                ctx.log?.error(`[${ctx.account.accountId}] Group reply ERROR: kind=${info.kind} err=${err}`);
+              },
+            },
+          })
+          .catch((err: unknown) => {
+            ctx.log?.error(`[${ctx.account.accountId}] Group message dispatch error: ${err}`);
+          });
+      }) ?? (() => {});
+
+      // Subscribe to group lifecycle events and notify owner
+      const unsubGroupJoined = sphere.on?.("groupchat:joined", (event: { id: string; name?: string }) => {
+        const owner = getOwnerIdentity();
+        if (owner) {
+          const label = event.name ? `${event.name} (${event.id})` : event.id;
+          sphere.communications.sendDM(`@${owner}`, `I joined group ${label}`).catch((err) => {
+            ctx.log?.error(`[${ctx.account.accountId}] Failed to notify owner about group join: ${err}`);
+          });
+        }
+      }) ?? (() => {});
+
+      const unsubGroupLeft = sphere.on?.("groupchat:left", (event: { id: string; name?: string }) => {
+        const owner = getOwnerIdentity();
+        if (owner) {
+          const label = event.name ?? event.id;
+          sphere.communications.sendDM(`@${owner}`, `I left group ${label}`).catch((err) => {
+            ctx.log?.error(`[${ctx.account.accountId}] Failed to notify owner about group leave: ${err}`);
+          });
+        }
+      }) ?? (() => {});
+
+      const unsubGroupKicked = sphere.on?.("groupchat:kicked", (event: { id: string; name?: string }) => {
+        const owner = getOwnerIdentity();
+        if (owner) {
+          const label = event.name ?? event.id;
+          sphere.communications.sendDM(`@${owner}`, `I was kicked from group ${label}`).catch((err) => {
+            ctx.log?.error(`[${ctx.account.accountId}] Failed to notify owner about group kick: ${err}`);
+          });
+        }
+      }) ?? (() => {});
+
       ctx.abortSignal.addEventListener("abort", () => {
         unsub();
         unsubTransfer();
         unsubPaymentRequest();
+        unsubGroupMessage();
+        unsubGroupJoined();
+        unsubGroupLeft();
+        unsubGroupKicked();
       }, { once: true });
 
       return {
@@ -417,6 +535,10 @@ export const unicityChannelPlugin = {
           unsub();
           unsubTransfer();
           unsubPaymentRequest();
+          unsubGroupMessage();
+          unsubGroupJoined();
+          unsubGroupLeft();
+          unsubGroupKicked();
           ctx.log?.info(`[${ctx.account.accountId}] Unicity channel stopped`);
         },
       };
@@ -501,4 +623,44 @@ export const unicityChannelPlugin = {
       return { cfg };
     },
   } satisfies ChannelOnboardingAdapter,
+
+  // -- groups adapter (group chat policy) -----------------------------------
+  groups: {
+    resolveRequireMention: () => true,
+    resolveToolPolicy: () => ({
+      deny: ["unicity_send_tokens", "unicity_respond_payment_request", "unicity_top_up"],
+    }),
+  },
+
+  // -- directory adapter (group/member listing) -----------------------------
+  directory: {
+    listGroups: async () => {
+      const sphere = activeSphere;
+      if (!sphere) return [];
+      try {
+        const groups = sphere.groupChat?.getGroups?.() ?? [];
+        return groups.map((g: { id: string; name: string }) => ({
+          kind: "group" as const,
+          id: g.id,
+          name: g.name,
+        }));
+      } catch {
+        return [];
+      }
+    },
+    listGroupMembers: async ({ groupId }: { groupId: string }) => {
+      const sphere = activeSphere;
+      if (!sphere) return [];
+      try {
+        const members = sphere.groupChat?.getMembers?.(groupId) ?? [];
+        return members.map((m: { pubkey: string; nametag?: string }) => ({
+          kind: "user" as const,
+          id: m.pubkey,
+          name: m.nametag,
+        }));
+      } catch {
+        return [];
+      }
+    },
+  },
 };

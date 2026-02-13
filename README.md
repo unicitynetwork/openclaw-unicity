@@ -21,8 +21,9 @@
 - **Token management** — Send/receive tokens, check balances, view transaction history
 - **Payment requests** — Request payments from other users, accept/reject/pay incoming requests
 - **Faucet top-up** — Request test tokens on testnet via built-in faucet tool
-- **Agent tools** — 9 tools for messaging, wallet operations, and payments (see [Agent Tools](#agent-tools))
-- **OpenClaw channel** — Full channel plugin with inbound/outbound message handling, status reporting, and DM access control
+- **Group chat** — Create and join NIP-29 group chats (public and private), exchange messages, manage membership
+- **Agent tools** — 15 tools for messaging, wallet operations, payments, and group chat (see [Agent Tools](#agent-tools))
+- **OpenClaw channel** — Full channel plugin with inbound/outbound message handling, group chat support, status reporting, and DM access control
 - **Interactive setup** — `openclaw unicity setup` wizard and `openclaw onboard` integration
 - **CLI commands** — `openclaw unicity init`, `status`, `send`, and `listen` for wallet management
 
@@ -81,6 +82,7 @@ If you prefer to edit config directly, add to `~/.openclaw/openclaw.json`:
           "additionalRelays": [         // Optional: extra Nostr relays
             "wss://custom-relay.example.com"
           ],
+          "groupChat": true,             // true (default) | false | { "relays": ["wss://..."] }
           "dmPolicy": "open",            // open | pairing | allowlist | disabled
           "allowFrom": ["@trusted-user"] // Required when dmPolicy is "allowlist"
         }
@@ -154,6 +156,17 @@ Once the plugin is loaded, the agent has access to the following tools:
 | `unicity_respond_payment_request` | Pay, accept, or reject a payment request |
 | `unicity_top_up` | Request test tokens from the faucet (testnet only) |
 
+### Group Chat
+
+| Tool | Description |
+|------|-------------|
+| `unicity_create_public_group` | Create a public NIP-29 group chat (anyone can discover and join) |
+| `unicity_create_private_group` | Create a private group and optionally DM invite codes to specified recipients |
+| `unicity_join_group` | Join a group (invite code required for private groups) |
+| `unicity_leave_group` | Leave a group |
+| `unicity_list_groups` | List joined groups or discover available public groups |
+| `unicity_send_group_message` | Send a message to a group chat |
+
 Recipients can be specified as a `@nametag` or a 64-character hex public key.
 
 **Examples:**
@@ -165,10 +178,23 @@ Recipients can be specified as a `@nametag` or a 64-character hex public key.
 > "Send 100 UCT to @bob for the pizza"
 >
 > "Top up 50 USDU from the faucet"
+>
+> "Create a public group called 'Trading Floor'"
+>
+> "Create a private group called 'Strategy' and invite @alice and @bob"
+>
+> "List my groups"
 
 ### Receive messages
 
-When the gateway is running, incoming DMs, token transfers, and payment requests are automatically routed to the agent's reply pipeline. The agent receives the event, processes it, and replies are delivered back as encrypted DMs.
+When the gateway is running, incoming DMs, token transfers, payment requests, and group messages are automatically routed to the agent's reply pipeline. The agent receives the event, processes it, and replies are delivered back as encrypted DMs or group messages.
+
+### Group chat behavior
+
+- The agent only responds in groups when **mentioned** (not to every message)
+- **Financial tools are blocked** in group context — no token transfers, payment responses, or faucet top-ups from group messages
+- The agent **notifies the owner via DM** when it joins, leaves, or is kicked from a group
+- Private groups require an invite code; `unicity_create_private_group` can auto-DM the code to specified invitees
 
 ## Architecture
 
@@ -190,9 +216,9 @@ When the gateway is running, incoming DMs, token transfers, and payment requests
 ```
 
 - **Plugin service** starts the Sphere SDK, creates/loads the wallet, and connects to Unicity relays
-- **Gateway adapter** listens for inbound DMs, token transfers, and payment requests, dispatching them through OpenClaw's reply pipeline
-- **Outbound adapter** delivers agent replies as encrypted DMs
-- **Agent tools** (9 tools) allow the agent to send messages, manage tokens, and handle payments
+- **Gateway adapter** listens for inbound DMs, token transfers, payment requests, and group messages, dispatching them through OpenClaw's reply pipeline
+- **Outbound adapter** delivers agent replies as encrypted DMs or group messages (auto-routed by target)
+- **Agent tools** (15 tools) allow the agent to send messages, manage tokens, handle payments, and participate in group chats
 
 ## Data Storage
 
@@ -238,7 +264,7 @@ unicity/
 │   ├── config.ts             # Configuration schema & validation
 │   ├── validation.ts         # Shared validation (nametag regex, recipient format)
 │   ├── sphere.ts             # Sphere SDK singleton lifecycle
-│   ├── channel.ts            # Channel plugin (7 adapters + onboarding)
+│   ├── channel.ts            # Channel plugin (9 adapters + onboarding)
 │   ├── assets.ts             # Asset registry & decimal conversion
 │   ├── setup.ts              # Interactive setup wizard
 │   ├── cli-prompter.ts       # WizardPrompter adapter for CLI
@@ -253,7 +279,13 @@ unicity/
 │       ├── request-payment.ts        # Request payment from a user
 │       ├── list-payment-requests.ts  # View payment requests
 │       ├── respond-payment-request.ts # Pay/accept/reject requests
-│       └── top-up.ts                 # Testnet faucet
+│       ├── top-up.ts                 # Testnet faucet
+│       ├── create-public-group.ts    # Create public NIP-29 group
+│       ├── create-private-group.ts   # Create private group + invite
+│       ├── join-group.ts             # Join a group
+│       ├── leave-group.ts            # Leave a group
+│       ├── list-groups.ts            # List joined/available groups
+│       └── send-group-message.ts     # Send message to a group
 ├── test/
 │   ├── config.test.ts
 │   ├── assets.test.ts
