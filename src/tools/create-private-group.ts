@@ -28,8 +28,10 @@ export const createPrivateGroupTool = {
       visibility: "private",
     });
 
-    const invite = await sphere.groupChat.createInvite(group.id);
-    const joinCode = invite.code;
+    const joinCode = await sphere.groupChat.createInvite(group.id);
+    if (!joinCode) {
+      throw new Error("Failed to generate invite code for the private group");
+    }
 
     const lines = [
       `Private group created: ${group.name} (${group.id})`,

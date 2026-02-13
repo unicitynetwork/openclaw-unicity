@@ -28,7 +28,7 @@ describe("createPrivateGroupTool", () => {
 
   it("creates a private group and returns join code", async () => {
     mockCreateGroup.mockResolvedValue({ id: "grp-1", name: "Secret Club" });
-    mockCreateInvite.mockResolvedValue({ code: "inv-abc" });
+    mockCreateInvite.mockResolvedValue("inv-abc");
 
     const result = await createPrivateGroupTool.execute("call-1", {
       name: "Secret Club",
@@ -48,7 +48,7 @@ describe("createPrivateGroupTool", () => {
 
   it("sends invite DMs to invitees", async () => {
     mockCreateGroup.mockResolvedValue({ id: "grp-2", name: "Private Chat" });
-    mockCreateInvite.mockResolvedValue({ code: "inv-xyz" });
+    mockCreateInvite.mockResolvedValue("inv-xyz");
     mockSendDM.mockResolvedValue({ id: "dm-1" });
 
     const result = await createPrivateGroupTool.execute("call-2", {
@@ -66,7 +66,7 @@ describe("createPrivateGroupTool", () => {
 
   it("reports failed invitee DMs", async () => {
     mockCreateGroup.mockResolvedValue({ id: "grp-3", name: "Group" });
-    mockCreateInvite.mockResolvedValue({ code: "inv-123" });
+    mockCreateInvite.mockResolvedValue("inv-123");
     mockSendDM.mockRejectedValue(new Error("relay down"));
 
     const result = await createPrivateGroupTool.execute("call-3", {
@@ -80,7 +80,7 @@ describe("createPrivateGroupTool", () => {
 
   it("rejects invalid invitee format", async () => {
     mockCreateGroup.mockResolvedValue({ id: "grp-4", name: "Group" });
-    mockCreateInvite.mockResolvedValue({ code: "inv-456" });
+    mockCreateInvite.mockResolvedValue("inv-456");
 
     const result = await createPrivateGroupTool.execute("call-4", {
       name: "Group",

@@ -424,19 +424,20 @@ export const unicityChannelPlugin = {
 
       // Subscribe to incoming group messages
       const unsubGroupMessage = sphere.groupChat?.onMessage?.((msg: {
-        id: string;
+        id?: string;
         groupId: string;
-        groupName?: string;
         senderPubkey: string;
         senderNametag?: string;
         content: string;
-        timestamp?: number;
+        timestamp: number;
+        replyToId?: string;
       }) => {
         // Skip messages from self
         if (msg.senderPubkey === sphere.identity?.chainPubkey) return;
 
         const senderName = msg.senderNametag ?? msg.senderPubkey.slice(0, 12);
-        const groupName = msg.groupName ?? msg.groupId;
+        const groupData = sphere.groupChat?.getGroup?.(msg.groupId);
+        const groupName = groupData?.name ?? msg.groupId;
         const isOwner = isSenderOwner(msg.senderPubkey, msg.senderNametag);
         const metadataHeader = `[SenderName: ${senderName} | SenderId: ${msg.senderPubkey} | GroupId: ${msg.groupId} | GroupName: ${groupName} | IsOwner: ${isOwner} | CommandAuthorized: ${isOwner}]`;
         const sanitizedContent = msg.content.replace(/\[(?:SenderName|SenderId|IsOwner|CommandAuthorized|GroupId|GroupName)\s*:/gi, "[BLOCKED:");
@@ -490,30 +491,31 @@ export const unicityChannelPlugin = {
       }) ?? (() => {});
 
       // Subscribe to group lifecycle events and notify owner
-      const unsubGroupJoined = sphere.on?.("groupchat:joined", (event: { id: string; name?: string }) => {
+      const unsubGroupJoined = sphere.on?.("groupchat:joined", (event: { groupId: string; groupName: string }) => {
         const owner = getOwnerIdentity();
         if (owner) {
-          const label = event.name ? `${event.name} (${event.id})` : event.id;
+          const label = event.groupName ? `${event.groupName} (${event.groupId})` : event.groupId;
           sphere.communications.sendDM(`@${owner}`, `I joined group ${label}`).catch((err) => {
             ctx.log?.error(`[${ctx.account.accountId}] Failed to notify owner about group join: ${err}`);
           });
         }
       }) ?? (() => {});
 
-      const unsubGroupLeft = sphere.on?.("groupchat:left", (event: { id: string; name?: string }) => {
+      const unsubGroupLeft = sphere.on?.("groupchat:left", (event: { groupId: string }) => {
         const owner = getOwnerIdentity();
         if (owner) {
-          const label = event.name ?? event.id;
+          const groupData = sphere.groupChat?.getGroup?.(event.groupId);
+          const label = groupData?.name ?? event.groupId;
           sphere.communications.sendDM(`@${owner}`, `I left group ${label}`).catch((err) => {
             ctx.log?.error(`[${ctx.account.accountId}] Failed to notify owner about group leave: ${err}`);
           });
         }
       }) ?? (() => {});
 
-      const unsubGroupKicked = sphere.on?.("groupchat:kicked", (event: { id: string; name?: string }) => {
+      const unsubGroupKicked = sphere.on?.("groupchat:kicked", (event: { groupId: string; groupName: string }) => {
         const owner = getOwnerIdentity();
         if (owner) {
-          const label = event.name ?? event.id;
+          const label = event.groupName ? `${event.groupName} (${event.groupId})` : event.groupId;
           sphere.communications.sendDM(`@${owner}`, `I was kicked from group ${label}`).catch((err) => {
             ctx.log?.error(`[${ctx.account.accountId}] Failed to notify owner about group kick: ${err}`);
           });
