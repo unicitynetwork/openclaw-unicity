@@ -453,6 +453,25 @@ export const unicityChannelPlugin = {
         replyToId?: string;
       };
 
+      // Nostr pubkey for self-message detection and reply-to-self detection.
+      // Group messages use the 32-byte x-only Nostr pubkey (event.pubkey),
+      // NOT the 33-byte compressed chainPubkey.
+      const myNostrPubkey = sphere.groupChat?.getMyPublicKey?.() ?? null;
+
+      // Detect if a group message is a reply to one of the agent's own messages.
+      // Used to set WasMentioned so the mention gate treats replies-to-self as
+      // implicit mentions (same pattern Discord uses for thread replies).
+      function isReplyToSelf(msg: GroupMsg): boolean {
+        if (!msg.replyToId || !myNostrPubkey) return false;
+        try {
+          const messages = sphere.groupChat?.getMessages?.(msg.groupId) ?? [];
+          const repliedTo = messages.find((m: { id: string }) => m.id === msg.replyToId);
+          return repliedTo?.senderPubkey === myNostrPubkey;
+        } catch {
+          return false;
+        }
+      }
+
       function dispatchGroupMessage(msg: GroupMsg): void {
         const senderName = msg.senderNametag ?? msg.senderPubkey.slice(0, 12);
         const groupData = sphere.groupChat?.getGroup?.(msg.groupId);
@@ -460,6 +479,10 @@ export const unicityChannelPlugin = {
         const isOwner = isSenderOwner(msg.senderPubkey, msg.senderNametag);
         const metadataHeader = `[SenderName: ${senderName} | SenderId: ${msg.senderPubkey} | GroupId: ${msg.groupId} | GroupName: ${groupName} | IsOwner: ${isOwner} | CommandAuthorized: ${isOwner}]`;
         const sanitizedContent = msg.content.replace(/\[(?:SenderName|SenderId|IsOwner|CommandAuthorized|GroupId|GroupName)\s*:/gi, "[BLOCKED:");
+
+        // Treat replies to the agent's own messages as implicit mentions,
+        // so the mention gate doesn't skip them (mirrors Discord's behavior).
+        const wasMentioned = isReplyToSelf(msg) || undefined;
 
         ctx.log?.info(`[${ctx.account.accountId}] Group message from ${senderName} in ${groupName}: ${msg.content.slice(0, 80)}`);
 
@@ -479,6 +502,7 @@ export const unicityChannelPlugin = {
           SenderId: msg.senderPubkey,
           IsOwner: isOwner,
           CommandAuthorized: isOwner,
+          WasMentioned: wasMentioned,
         });
 
         runtime.channel.reply
@@ -490,7 +514,7 @@ export const unicityChannelPlugin = {
                 const text = payload.text;
                 if (!text) return;
                 try {
-                  await sphere.groupChat.sendMessage(msg.groupId, text);
+                  await sphere.groupChat.sendMessage(msg.groupId, text, msg.id);
                   ctx.log?.info(`[${ctx.account.accountId}] Group message sent to ${groupName}: ${text.slice(0, 80)}`);
                 } catch (err) {
                   ctx.log?.error(`[${ctx.account.accountId}] Failed to send group message to ${groupName}: ${err}`);
@@ -508,11 +532,6 @@ export const unicityChannelPlugin = {
             ctx.log?.error(`[${ctx.account.accountId}] Group message dispatch error: ${err}`);
           });
       }
-
-      // Nostr pubkey for self-message detection. Group messages use the 32-byte
-      // x-only Nostr pubkey (event.pubkey), NOT the 33-byte compressed chainPubkey.
-      // sphere.groupChat.getMyPublicKey() returns the correct Nostr-format key.
-      const myNostrPubkey = sphere.groupChat?.getMyPublicKey?.() ?? null;
 
       // Per-group backfill state: buffer messages during the initial burst, then
       // switch to live dispatch once the burst settles.

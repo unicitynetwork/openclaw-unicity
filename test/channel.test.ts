@@ -788,7 +788,7 @@ describe("gateway.startAccount", () => {
     // Advance past backfill debounce so the message gets dispatched
     await vi.advanceTimersByTimeAsync(GROUP_BACKFILL_DEBOUNCE_MS + 100);
 
-    expect(mockGroupSendMessage).toHaveBeenCalledWith("grp-42", "Group reply!");
+    expect(mockGroupSendMessage).toHaveBeenCalledWith("grp-42", "Group reply!", "gmsg-2");
     vi.useRealTimers();
   });
 
@@ -1262,5 +1262,83 @@ describe("group message backfill debounce", () => {
     expect(mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
     const ctx = mockRuntime.channel.reply.finalizeInboundContext.mock.calls[0][0];
     expect(ctx.Body).toContain("hey everyone");
+  });
+
+  it("sets WasMentioned=true when message is a reply to agent's own message", async () => {
+    // Add getMessages to return a message sent by the agent
+    mockSphere.groupChat.getMessages = vi.fn().mockReturnValue([
+      { id: "agent-msg-1", groupId: "grp-42", senderPubkey: "my_nostr_xonly_pubkey", content: "hi from agent", timestamp: 1000 },
+      { id: "other-msg-1", groupId: "grp-42", senderPubkey: "other-user", content: "hi from user", timestamp: 2000 },
+    ]);
+
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+
+    // Let backfill settle
+    groupMsgHandler!(makeGroupMsg({ content: "init" }));
+    vi.advanceTimersByTime(GROUP_BACKFILL_DEBOUNCE_MS + 100);
+    mockRuntime.channel.reply.finalizeInboundContext.mockClear();
+    mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mockClear();
+
+    // User replies to the agent's message (replyToId points to agent's msg)
+    groupMsgHandler!(makeGroupMsg({
+      senderPubkey: "other-user",
+      senderNametag: "hui-8",
+      content: "Tuesday? check your calendar again",
+      replyToId: "agent-msg-1",
+    }));
+
+    expect(mockRuntime.channel.reply.finalizeInboundContext).toHaveBeenCalledTimes(1);
+    const ctx = mockRuntime.channel.reply.finalizeInboundContext.mock.calls[0][0];
+    expect(ctx.WasMentioned).toBe(true);
+  });
+
+  it("does not set WasMentioned when reply is to another user's message", async () => {
+    mockSphere.groupChat.getMessages = vi.fn().mockReturnValue([
+      { id: "agent-msg-1", groupId: "grp-42", senderPubkey: "my_nostr_xonly_pubkey", content: "hi", timestamp: 1000 },
+      { id: "other-msg-1", groupId: "grp-42", senderPubkey: "other-user", content: "hi", timestamp: 2000 },
+    ]);
+
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+
+    // Let backfill settle
+    groupMsgHandler!(makeGroupMsg({ content: "init" }));
+    vi.advanceTimersByTime(GROUP_BACKFILL_DEBOUNCE_MS + 100);
+    mockRuntime.channel.reply.finalizeInboundContext.mockClear();
+    mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mockClear();
+
+    // User replies to another user's message (not the agent's)
+    groupMsgHandler!(makeGroupMsg({
+      senderPubkey: "third-user",
+      senderNametag: "charlie",
+      content: "I agree",
+      replyToId: "other-msg-1",
+    }));
+
+    expect(mockRuntime.channel.reply.finalizeInboundContext).toHaveBeenCalledTimes(1);
+    const ctx = mockRuntime.channel.reply.finalizeInboundContext.mock.calls[0][0];
+    expect(ctx.WasMentioned).toBeUndefined();
+  });
+
+  it("does not set WasMentioned when message has no replyToId", async () => {
+    mockSphere.groupChat.getMessages = vi.fn().mockReturnValue([]);
+
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+
+    // Let backfill settle
+    groupMsgHandler!(makeGroupMsg({ content: "init" }));
+    vi.advanceTimersByTime(GROUP_BACKFILL_DEBOUNCE_MS + 100);
+    mockRuntime.channel.reply.finalizeInboundContext.mockClear();
+    mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mockClear();
+
+    // Regular message, no reply
+    groupMsgHandler!(makeGroupMsg({
+      senderPubkey: "other-user",
+      senderNametag: "bob",
+      content: "just chatting",
+    }));
+
+    expect(mockRuntime.channel.reply.finalizeInboundContext).toHaveBeenCalledTimes(1);
+    const ctx = mockRuntime.channel.reply.finalizeInboundContext.mock.calls[0][0];
+    expect(ctx.WasMentioned).toBeUndefined();
   });
 });
