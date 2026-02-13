@@ -13,6 +13,7 @@ const DEFAULT_ACCOUNT_ID = "default";
 /** How long (ms) to wait after the last group message before declaring backfill complete. */
 export const GROUP_BACKFILL_DEBOUNCE_MS = 3_000;
 
+
 interface GroupBackfillState {
   phase: "buffering" | "live";
   latestMsg: {
@@ -508,14 +509,20 @@ export const unicityChannelPlugin = {
           });
       }
 
+      // Nostr pubkey for self-message detection. Group messages use the 32-byte
+      // x-only Nostr pubkey (event.pubkey), NOT the 33-byte compressed chainPubkey.
+      // sphere.groupChat.getMyPublicKey() returns the correct Nostr-format key.
+      const myNostrPubkey = sphere.groupChat?.getMyPublicKey?.() ?? null;
+
       // Per-group backfill state: buffer messages during the initial burst, then
       // switch to live dispatch once the burst settles.
       const groupBackfillStates = new Map<string, GroupBackfillState>();
 
       // Subscribe to incoming group messages
       const unsubGroupMessage = sphere.groupChat?.onMessage?.((msg: GroupMsg) => {
-        // Skip messages from self
-        if (msg.senderPubkey === sphere.identity?.chainPubkey) return;
+        // Skip messages from self (echoed back by the relay).
+        // Compare against the Nostr x-only pubkey, not chainPubkey.
+        if (myNostrPubkey && msg.senderPubkey === myNostrPubkey) return;
 
         // Lookup or create per-group backfill state
         let state = groupBackfillStates.get(msg.groupId);

@@ -628,6 +628,7 @@ describe("gateway.startAccount", () => {
       sendMessage: vi.fn().mockResolvedValue({ id: "gm-1" }),
       getGroups: vi.fn().mockReturnValue([]),
       getGroup: vi.fn().mockReturnValue({ id: "grp-42", name: "Test Group" }),
+      getMyPublicKey: vi.fn().mockReturnValue("my_nostr_xonly_pubkey"),
     };
 
     await unicityChannelPlugin.gateway.startAccount(mockCtx);
@@ -668,6 +669,7 @@ describe("gateway.startAccount", () => {
       sendMessage: vi.fn(),
       getGroups: vi.fn().mockReturnValue([]),
       getGroup: vi.fn().mockReturnValue(null),
+      getMyPublicKey: vi.fn().mockReturnValue("my_nostr_xonly_pubkey"),
     };
 
     await unicityChannelPlugin.gateway.startAccount(mockCtx);
@@ -689,7 +691,7 @@ describe("gateway.startAccount", () => {
     vi.useRealTimers();
   });
 
-  it("skips own group messages", async () => {
+  it("skips own group messages using Nostr pubkey from getMyPublicKey", async () => {
     let groupMsgHandler: ((msg: any) => void) | null = null;
     mockSphere.groupChat = {
       onMessage: vi.fn((handler: any) => {
@@ -699,20 +701,56 @@ describe("gateway.startAccount", () => {
       sendMessage: vi.fn(),
       getGroups: vi.fn().mockReturnValue([]),
       getGroup: vi.fn().mockReturnValue({ id: "grp-42", name: "Test Group" }),
+      getMyPublicKey: vi.fn().mockReturnValue("nostr_xonly_pubkey_64hex"),
     };
 
     await unicityChannelPlugin.gateway.startAccount(mockCtx);
 
+    // senderPubkey is the Nostr x-only pubkey (from event.pubkey), NOT chainPubkey
     groupMsgHandler!({
       id: "gmsg-self",
       groupId: "grp-42",
-      senderPubkey: "abc123def456", // Same as mockSphere.identity.chainPubkey
+      senderPubkey: "nostr_xonly_pubkey_64hex", // matches getMyPublicKey()
       senderNametag: "test-agent",
       content: "my own message",
       timestamp: Date.now(),
     });
 
     expect(mockRuntime.channel.reply.finalizeInboundContext).not.toHaveBeenCalled();
+  });
+
+  it("does NOT skip own messages when comparing against chainPubkey (wrong key format)", async () => {
+    vi.useFakeTimers();
+    let groupMsgHandler: ((msg: any) => void) | null = null;
+    mockSphere.groupChat = {
+      onMessage: vi.fn((handler: any) => {
+        groupMsgHandler = handler;
+        return vi.fn();
+      }),
+      sendMessage: vi.fn(),
+      getGroups: vi.fn().mockReturnValue([]),
+      getGroup: vi.fn().mockReturnValue({ id: "grp-42", name: "Test Group" }),
+      getMyPublicKey: vi.fn().mockReturnValue("nostr_xonly_pubkey_64hex"),
+    };
+
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+
+    // chainPubkey is 33-byte compressed, senderPubkey is 32-byte x-only — they differ!
+    // This verifies the fix: messages with chainPubkey as senderPubkey are NOT self
+    // (this scenario shouldn't happen in practice, but proves we use the right key)
+    groupMsgHandler!({
+      id: "gmsg-not-self",
+      groupId: "grp-42",
+      senderPubkey: "abc123def456", // chainPubkey, NOT the Nostr pubkey
+      senderNametag: "someone",
+      content: "from someone else",
+      timestamp: Date.now(),
+    });
+
+    // Message enters buffering since it's not detected as self
+    vi.advanceTimersByTime(GROUP_BACKFILL_DEBOUNCE_MS + 100);
+    expect(mockRuntime.channel.reply.finalizeInboundContext).toHaveBeenCalled();
+    vi.useRealTimers();
   });
 
   it("delivers group reply via groupChat.sendMessage", async () => {
@@ -727,6 +765,7 @@ describe("gateway.startAccount", () => {
       sendMessage: mockGroupSendMessage,
       getGroups: vi.fn().mockReturnValue([]),
       getGroup: vi.fn().mockReturnValue({ id: "grp-42", name: "Test Group" }),
+      getMyPublicKey: vi.fn().mockReturnValue("my_nostr_xonly_pubkey"),
     };
 
     mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mockImplementation(
@@ -764,6 +803,7 @@ describe("gateway.startAccount", () => {
       sendMessage: vi.fn(),
       getGroups: vi.fn().mockReturnValue([]),
       getGroup: vi.fn().mockReturnValue({ id: "grp-42", name: "Test Group" }),
+      getMyPublicKey: vi.fn().mockReturnValue("my_nostr_xonly_pubkey"),
     };
 
     await unicityChannelPlugin.gateway.startAccount(mockCtx);
@@ -795,6 +835,7 @@ describe("gateway.startAccount", () => {
     mockSphere.groupChat = {
       onMessage: vi.fn().mockReturnValue(vi.fn()),
       getGroups: vi.fn().mockReturnValue([]),
+      getMyPublicKey: vi.fn().mockReturnValue("my_nostr_xonly_pubkey"),
     };
 
     await unicityChannelPlugin.gateway.startAccount(mockCtx);
@@ -821,6 +862,7 @@ describe("gateway.startAccount", () => {
       onMessage: vi.fn().mockReturnValue(vi.fn()),
       getGroups: vi.fn().mockReturnValue([]),
       getGroup: vi.fn().mockReturnValue({ id: "grp-99", name: "Old Group" }),
+      getMyPublicKey: vi.fn().mockReturnValue("my_nostr_xonly_pubkey"),
     };
 
     await unicityChannelPlugin.gateway.startAccount(mockCtx);
@@ -846,6 +888,7 @@ describe("gateway.startAccount", () => {
     mockSphere.groupChat = {
       onMessage: vi.fn().mockReturnValue(vi.fn()),
       getGroups: vi.fn().mockReturnValue([]),
+      getMyPublicKey: vi.fn().mockReturnValue("my_nostr_xonly_pubkey"),
     };
 
     await unicityChannelPlugin.gateway.startAccount(mockCtx);
@@ -1018,6 +1061,7 @@ describe("group message backfill debounce", () => {
         sendMessage: vi.fn().mockResolvedValue({ id: "gm-1" }),
         getGroups: vi.fn().mockReturnValue([]),
         getGroup: vi.fn().mockReturnValue({ id: "grp-42", name: "Test Group" }),
+        getMyPublicKey: vi.fn().mockReturnValue("my_nostr_xonly_pubkey"),
       },
     };
 
@@ -1177,5 +1221,46 @@ describe("group message backfill debounce", () => {
     expect(mockCtx.log.info).toHaveBeenCalledWith(
       expect.stringContaining("backfill settled for grp-42, 3 message(s) buffered"),
     );
+  });
+
+  it("skips self-echo using Nostr pubkey from getMyPublicKey", async () => {
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+
+    // Let backfill settle first so we're in live mode
+    groupMsgHandler!(makeGroupMsg({ content: "init" }));
+    vi.advanceTimersByTime(GROUP_BACKFILL_DEBOUNCE_MS + 100);
+    mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mockClear();
+    mockRuntime.channel.reply.finalizeInboundContext.mockClear();
+
+    // Relay echoes our message — senderPubkey is the Nostr x-only pubkey
+    // (matches getMyPublicKey()), NOT chainPubkey
+    groupMsgHandler!(makeGroupMsg({
+      senderPubkey: "my_nostr_xonly_pubkey", // matches getMyPublicKey() mock
+      senderNametag: "test-agent",
+      content: "my own reply",
+    }));
+
+    expect(mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+  });
+
+  it("does not filter messages from other users", async () => {
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+
+    // Let backfill settle
+    groupMsgHandler!(makeGroupMsg({ content: "init" }));
+    vi.advanceTimersByTime(GROUP_BACKFILL_DEBOUNCE_MS + 100);
+    mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mockClear();
+    mockRuntime.channel.reply.finalizeInboundContext.mockClear();
+
+    // Different user (different Nostr pubkey) — should dispatch
+    groupMsgHandler!(makeGroupMsg({
+      senderPubkey: "other-user-nostr-pubkey",
+      senderNametag: "bob",
+      content: "hey everyone",
+    }));
+
+    expect(mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
+    const ctx = mockRuntime.channel.reply.finalizeInboundContext.mock.calls[0][0];
+    expect(ctx.Body).toContain("hey everyone");
   });
 });
