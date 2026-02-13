@@ -10,6 +10,24 @@ import type { UnicityConfig } from "./config.js";
 
 const DEFAULT_ACCOUNT_ID = "default";
 
+/** How long (ms) to wait after the last group message before declaring backfill complete. */
+export const GROUP_BACKFILL_DEBOUNCE_MS = 3_000;
+
+interface GroupBackfillState {
+  phase: "buffering" | "live";
+  latestMsg: {
+    id?: string;
+    groupId: string;
+    senderPubkey: string;
+    senderNametag?: string;
+    content: string;
+    timestamp: number;
+    replyToId?: string;
+  } | null;
+  bufferedCount: number;
+  timer: ReturnType<typeof setTimeout> | null;
+}
+
 // ---------------------------------------------------------------------------
 // Account config shape (read from openclaw config under channels.unicity)
 // ---------------------------------------------------------------------------
@@ -422,8 +440,9 @@ export const unicityChannelPlugin = {
           });
       });
 
-      // Subscribe to incoming group messages
-      const unsubGroupMessage = sphere.groupChat?.onMessage?.((msg: {
+      // -- Group message dispatch helper & backfill debounce --------------------
+
+      type GroupMsg = {
         id?: string;
         groupId: string;
         senderPubkey: string;
@@ -431,10 +450,9 @@ export const unicityChannelPlugin = {
         content: string;
         timestamp: number;
         replyToId?: string;
-      }) => {
-        // Skip messages from self
-        if (msg.senderPubkey === sphere.identity?.chainPubkey) return;
+      };
 
+      function dispatchGroupMessage(msg: GroupMsg): void {
         const senderName = msg.senderNametag ?? msg.senderPubkey.slice(0, 12);
         const groupData = sphere.groupChat?.getGroup?.(msg.groupId);
         const groupName = groupData?.name ?? msg.groupId;
@@ -488,6 +506,46 @@ export const unicityChannelPlugin = {
           .catch((err: unknown) => {
             ctx.log?.error(`[${ctx.account.accountId}] Group message dispatch error: ${err}`);
           });
+      }
+
+      // Per-group backfill state: buffer messages during the initial burst, then
+      // switch to live dispatch once the burst settles.
+      const groupBackfillStates = new Map<string, GroupBackfillState>();
+
+      // Subscribe to incoming group messages
+      const unsubGroupMessage = sphere.groupChat?.onMessage?.((msg: GroupMsg) => {
+        // Skip messages from self
+        if (msg.senderPubkey === sphere.identity?.chainPubkey) return;
+
+        // Lookup or create per-group backfill state
+        let state = groupBackfillStates.get(msg.groupId);
+        if (!state) {
+          state = { phase: "buffering", latestMsg: null, bufferedCount: 0, timer: null };
+          groupBackfillStates.set(msg.groupId, state);
+        }
+
+        // Already past backfill — dispatch immediately
+        if (state.phase === "live") {
+          dispatchGroupMessage(msg);
+          return;
+        }
+
+        // BUFFERING: keep only the latest message, reset the debounce timer
+        state.latestMsg = msg;
+        state.bufferedCount++;
+        if (state.timer) clearTimeout(state.timer);
+        state.timer = setTimeout(() => {
+          state!.phase = "live";
+          state!.timer = null;
+          ctx.log?.info(
+            `[${ctx.account.accountId}] Group backfill settled for ${msg.groupId}, ${state!.bufferedCount} message(s) buffered`,
+          );
+          // Dispatch the most recent buffered message so the agent has context
+          if (state!.latestMsg) {
+            dispatchGroupMessage(state!.latestMsg);
+            state!.latestMsg = null;
+          }
+        }, GROUP_BACKFILL_DEBOUNCE_MS);
       }) ?? (() => {});
 
       // Subscribe to group lifecycle events and notify owner
@@ -522,7 +580,15 @@ export const unicityChannelPlugin = {
         }
       }) ?? (() => {});
 
+      function clearBackfillTimers(): void {
+        for (const state of groupBackfillStates.values()) {
+          if (state.timer) clearTimeout(state.timer);
+        }
+        groupBackfillStates.clear();
+      }
+
       ctx.abortSignal.addEventListener("abort", () => {
+        clearBackfillTimers();
         unsub();
         unsubTransfer();
         unsubPaymentRequest();
@@ -534,6 +600,7 @@ export const unicityChannelPlugin = {
 
       return {
         stop: () => {
+          clearBackfillTimers();
           unsub();
           unsubTransfer();
           unsubPaymentRequest();

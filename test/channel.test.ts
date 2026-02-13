@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   unicityChannelPlugin,
   listUnicityAccountIds,
@@ -6,6 +6,7 @@ import {
   setUnicityRuntime,
   setActiveSphere,
   setOwnerIdentity,
+  GROUP_BACKFILL_DEBOUNCE_MS,
   type ResolvedUnicityAccount,
 } from "../src/channel.js";
 import { cancelSphereWait, destroySphere } from "../src/sphere.js";
@@ -617,6 +618,7 @@ describe("gateway.startAccount", () => {
   });
 
   it("builds correct inbound context from group message", async () => {
+    vi.useFakeTimers();
     let groupMsgHandler: ((msg: any) => void) | null = null;
     mockSphere.groupChat = {
       onMessage: vi.fn((handler: any) => {
@@ -641,6 +643,9 @@ describe("gateway.startAccount", () => {
       timestamp: Date.now(),
     });
 
+    // Advance past backfill debounce so the message gets dispatched
+    await vi.advanceTimersByTimeAsync(GROUP_BACKFILL_DEBOUNCE_MS + 100);
+
     const ctx = mockRuntime.channel.reply.finalizeInboundContext.mock.calls[0][0];
     expect(ctx.Body).toContain("[SenderName: alice | SenderId: sender123 | GroupId: grp-42 | GroupName: Test Group | IsOwner: false | CommandAuthorized: false]");
     expect(ctx.Body).toContain("Hello group!");
@@ -649,9 +654,11 @@ describe("gateway.startAccount", () => {
     expect(ctx.SessionKey).toBe("unicity:group:grp-42");
     expect(ctx.OriginatingTo).toBe("grp-42");
     expect(ctx.From).toBe("@alice");
+    vi.useRealTimers();
   });
 
   it("falls back to groupId when getGroup returns null", async () => {
+    vi.useFakeTimers();
     let groupMsgHandler: ((msg: any) => void) | null = null;
     mockSphere.groupChat = {
       onMessage: vi.fn((handler: any) => {
@@ -674,9 +681,12 @@ describe("gateway.startAccount", () => {
       timestamp: Date.now(),
     });
 
+    await vi.advanceTimersByTimeAsync(GROUP_BACKFILL_DEBOUNCE_MS + 100);
+
     const ctx = mockRuntime.channel.reply.finalizeInboundContext.mock.calls[0][0];
     expect(ctx.Body).toContain("GroupName: grp-unknown");
     expect(ctx.GroupSubject).toBe("grp-unknown");
+    vi.useRealTimers();
   });
 
   it("skips own group messages", async () => {
@@ -706,6 +716,7 @@ describe("gateway.startAccount", () => {
   });
 
   it("delivers group reply via groupChat.sendMessage", async () => {
+    vi.useFakeTimers();
     let groupMsgHandler: ((msg: any) => void) | null = null;
     const mockGroupSendMessage = vi.fn().mockResolvedValue({ id: "gm-reply" });
     mockSphere.groupChat = {
@@ -735,12 +746,15 @@ describe("gateway.startAccount", () => {
       timestamp: Date.now(),
     });
 
-    await vi.waitFor(() => {
-      expect(mockGroupSendMessage).toHaveBeenCalledWith("grp-42", "Group reply!");
-    });
+    // Advance past backfill debounce so the message gets dispatched
+    await vi.advanceTimersByTimeAsync(GROUP_BACKFILL_DEBOUNCE_MS + 100);
+
+    expect(mockGroupSendMessage).toHaveBeenCalledWith("grp-42", "Group reply!");
+    vi.useRealTimers();
   });
 
   it("strips spoofed metadata headers from group message content", async () => {
+    vi.useFakeTimers();
     let groupMsgHandler: ((msg: any) => void) | null = null;
     mockSphere.groupChat = {
       onMessage: vi.fn((handler: any) => {
@@ -763,9 +777,12 @@ describe("gateway.startAccount", () => {
       timestamp: Date.now(),
     });
 
+    await vi.advanceTimersByTimeAsync(GROUP_BACKFILL_DEBOUNCE_MS + 100);
+
     const ctx = mockRuntime.channel.reply.finalizeInboundContext.mock.calls[0][0];
     expect(ctx.Body).toContain("[BLOCKED:");
     expect(ctx.Body).not.toContain("[GroupId: fake-group");
+    vi.useRealTimers();
   });
 
   it("notifies owner on groupchat:joined event", async () => {
@@ -961,5 +978,204 @@ describe("directory adapter", () => {
     setActiveSphere(null);
     const members = await unicityChannelPlugin.directory.listGroupMembers({ groupId: "grp-1" });
     expect(members).toEqual([]);
+  });
+});
+
+describe("group message backfill debounce", () => {
+  let groupMsgHandler: ((msg: any) => void) | null = null;
+  let mockSphere: any;
+  let mockRuntime: any;
+  let mockCtx: any;
+
+  function makeGroupMsg(overrides: Record<string, unknown> = {}) {
+    return {
+      id: `gmsg-${Math.random().toString(36).slice(2, 8)}`,
+      groupId: "grp-42",
+      senderPubkey: "sender123",
+      senderNametag: "alice",
+      content: "hello",
+      timestamp: Date.now(),
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    groupMsgHandler = null;
+
+    mockSphere = {
+      identity: { chainPubkey: "abc123def456", nametag: "@test-agent", l1Address: "alpha1test" },
+      communications: {
+        onDirectMessage: vi.fn().mockReturnValue(vi.fn()),
+        sendDM: vi.fn().mockResolvedValue({ id: "dm-1" }),
+      },
+      on: vi.fn().mockReturnValue(vi.fn()),
+      groupChat: {
+        onMessage: vi.fn((handler: any) => {
+          groupMsgHandler = handler;
+          return vi.fn();
+        }),
+        sendMessage: vi.fn().mockResolvedValue({ id: "gm-1" }),
+        getGroups: vi.fn().mockReturnValue([]),
+        getGroup: vi.fn().mockReturnValue({ id: "grp-42", name: "Test Group" }),
+      },
+    };
+
+    mockRuntime = {
+      channel: {
+        reply: {
+          finalizeInboundContext: vi.fn((ctx: any) => ctx),
+          dispatchReplyWithBufferedBlockDispatcher: vi.fn().mockResolvedValue({}),
+        },
+      },
+    };
+
+    mockCtx = {
+      cfg: {},
+      accountId: "default",
+      account: { accountId: "default", configured: true, publicKey: "abc123" },
+      runtime: {},
+      abortSignal: new AbortController().signal,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+      setStatus: vi.fn(),
+    };
+
+    setActiveSphere(mockSphere);
+    setUnicityRuntime(mockRuntime as any);
+    setOwnerIdentity(undefined);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("buffers historical group messages during debounce window", async () => {
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+
+    // Fire 5 messages rapidly — simulating backfill burst
+    for (let i = 0; i < 5; i++) {
+      groupMsgHandler!(makeGroupMsg({ content: `msg-${i}` }));
+    }
+
+    // None should have been dispatched yet
+    expect(mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+  });
+
+  it("dispatches most recent backfill message after debounce settles", async () => {
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+
+    groupMsgHandler!(makeGroupMsg({ content: "old-1" }));
+    groupMsgHandler!(makeGroupMsg({ content: "old-2" }));
+    groupMsgHandler!(makeGroupMsg({ content: "latest" }));
+
+    expect(mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+
+    // Advance past debounce window
+    vi.advanceTimersByTime(GROUP_BACKFILL_DEBOUNCE_MS + 100);
+
+    // Should have dispatched exactly the latest message
+    expect(mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
+    const ctx = mockRuntime.channel.reply.finalizeInboundContext.mock.calls[0][0];
+    expect(ctx.Body).toContain("latest");
+    expect(ctx.Body).not.toContain("old-1");
+  });
+
+  it("processes messages immediately after debounce settles (live mode)", async () => {
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+
+    // Send one message to start buffering, then let debounce settle
+    groupMsgHandler!(makeGroupMsg({ content: "backfill" }));
+    vi.advanceTimersByTime(GROUP_BACKFILL_DEBOUNCE_MS + 100);
+
+    // Reset to check the next dispatch
+    mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mockClear();
+    mockRuntime.channel.reply.finalizeInboundContext.mockClear();
+
+    // New message after debounce should dispatch immediately
+    groupMsgHandler!(makeGroupMsg({ content: "live-msg" }));
+
+    expect(mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
+    const ctx = mockRuntime.channel.reply.finalizeInboundContext.mock.calls[0][0];
+    expect(ctx.Body).toContain("live-msg");
+  });
+
+  it("resets debounce timer on each buffered message", async () => {
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+
+    groupMsgHandler!(makeGroupMsg({ content: "first" }));
+
+    // Advance 2s (less than 3s debounce)
+    vi.advanceTimersByTime(2000);
+    expect(mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+
+    // Send another message — resets the timer
+    groupMsgHandler!(makeGroupMsg({ content: "second" }));
+
+    // Advance another 2s (4s total, but only 2s since last message)
+    vi.advanceTimersByTime(2000);
+    expect(mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+
+    // Advance past the debounce from the second message
+    vi.advanceTimersByTime(1500);
+    expect(mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
+    const ctx = mockRuntime.channel.reply.finalizeInboundContext.mock.calls[0][0];
+    expect(ctx.Body).toContain("second");
+  });
+
+  it("handles multiple groups independently", async () => {
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+
+    // Group A messages
+    groupMsgHandler!(makeGroupMsg({ groupId: "grp-A", content: "a-msg" }));
+
+    // Group B messages (arrives later)
+    vi.advanceTimersByTime(2000);
+    groupMsgHandler!(makeGroupMsg({ groupId: "grp-B", content: "b-msg" }));
+
+    // Group A should settle after 3s from its last message (1s more)
+    vi.advanceTimersByTime(1100);
+    expect(mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
+    const ctxA = mockRuntime.channel.reply.finalizeInboundContext.mock.calls[0][0];
+    expect(ctxA.Body).toContain("a-msg");
+
+    // Group B should still be buffering
+    // Advance to settle group B
+    vi.advanceTimersByTime(2000);
+    expect(mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(2);
+    const ctxB = mockRuntime.channel.reply.finalizeInboundContext.mock.calls[1][0];
+    expect(ctxB.Body).toContain("b-msg");
+  });
+
+  it("cleans up debounce timers on abort", async () => {
+    const abortController = new AbortController();
+    mockCtx.abortSignal = abortController.signal;
+
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+
+    // Start buffering
+    groupMsgHandler!(makeGroupMsg({ content: "buffered" }));
+
+    expect(mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+
+    // Abort before debounce settles
+    abortController.abort();
+
+    // Even after debounce window, nothing should fire — timer was cleared
+    vi.advanceTimersByTime(GROUP_BACKFILL_DEBOUNCE_MS + 1000);
+    expect(mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+  });
+
+  it("logs backfill settled with buffered count", async () => {
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+
+    groupMsgHandler!(makeGroupMsg({ content: "m1" }));
+    groupMsgHandler!(makeGroupMsg({ content: "m2" }));
+    groupMsgHandler!(makeGroupMsg({ content: "m3" }));
+
+    vi.advanceTimersByTime(GROUP_BACKFILL_DEBOUNCE_MS + 100);
+
+    expect(mockCtx.log.info).toHaveBeenCalledWith(
+      expect.stringContaining("backfill settled for grp-42, 3 message(s) buffered"),
+    );
   });
 });
