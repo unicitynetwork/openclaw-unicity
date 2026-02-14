@@ -480,9 +480,14 @@ export const unicityChannelPlugin = {
         const metadataHeader = `[SenderName: ${senderName} | SenderId: ${msg.senderPubkey} | GroupId: ${msg.groupId} | GroupName: ${groupName} | IsOwner: ${isOwner} | CommandAuthorized: ${isOwner}]`;
         const sanitizedContent = msg.content.replace(/\[(?:SenderName|SenderId|IsOwner|CommandAuthorized|GroupId|GroupName)\s*:/gi, "[BLOCKED:");
 
-        // Treat replies to the agent's own messages as implicit mentions,
-        // so the mention gate doesn't skip them (mirrors Discord's behavior).
-        const wasMentioned = isReplyToSelf(msg) || undefined;
+        // Detect if the agent was mentioned — either by @nametag in the text
+        // or by replying to the agent's own message (implicit mention, mirrors
+        // Discord's behavior). Without this, the mention gate skips the message.
+        const agentTag = sphere.identity?.nametag?.replace(/^@/, "");
+        const wasTextMentioned = agentTag
+          ? msg.content.toLowerCase().includes(`@${agentTag.toLowerCase()}`)
+          : false;
+        const wasMentioned = wasTextMentioned || isReplyToSelf(msg) || undefined;
 
         ctx.log?.info(`[${ctx.account.accountId}] Group message from ${senderName} in ${groupName}: ${msg.content.slice(0, 80)}`);
 

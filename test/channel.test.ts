@@ -1319,7 +1319,7 @@ describe("group message backfill debounce", () => {
     expect(ctx.WasMentioned).toBeUndefined();
   });
 
-  it("does not set WasMentioned when message has no replyToId", async () => {
+  it("does not set WasMentioned when message has no replyToId and no @mention", async () => {
     mockSphere.groupChat.getMessages = vi.fn().mockReturnValue([]);
 
     await unicityChannelPlugin.gateway.startAccount(mockCtx);
@@ -1330,7 +1330,7 @@ describe("group message backfill debounce", () => {
     mockRuntime.channel.reply.finalizeInboundContext.mockClear();
     mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mockClear();
 
-    // Regular message, no reply
+    // Regular message, no reply, no @mention
     groupMsgHandler!(makeGroupMsg({
       senderPubkey: "other-user",
       senderNametag: "bob",
@@ -1340,5 +1340,44 @@ describe("group message backfill debounce", () => {
     expect(mockRuntime.channel.reply.finalizeInboundContext).toHaveBeenCalledTimes(1);
     const ctx = mockRuntime.channel.reply.finalizeInboundContext.mock.calls[0][0];
     expect(ctx.WasMentioned).toBeUndefined();
+  });
+
+  it("sets WasMentioned=true when message contains @nametag mention", async () => {
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+
+    // Let backfill settle
+    groupMsgHandler!(makeGroupMsg({ content: "init" }));
+    vi.advanceTimersByTime(GROUP_BACKFILL_DEBOUNCE_MS + 100);
+    mockRuntime.channel.reply.finalizeInboundContext.mockClear();
+    mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mockClear();
+
+    // Message with explicit @mention of the agent
+    groupMsgHandler!(makeGroupMsg({
+      senderPubkey: "other-user",
+      senderNametag: "bob",
+      content: "@test-agent say gm",
+    }));
+
+    expect(mockRuntime.channel.reply.finalizeInboundContext).toHaveBeenCalledTimes(1);
+    const ctx = mockRuntime.channel.reply.finalizeInboundContext.mock.calls[0][0];
+    expect(ctx.WasMentioned).toBe(true);
+  });
+
+  it("detects @mention case-insensitively", async () => {
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+
+    groupMsgHandler!(makeGroupMsg({ content: "init" }));
+    vi.advanceTimersByTime(GROUP_BACKFILL_DEBOUNCE_MS + 100);
+    mockRuntime.channel.reply.finalizeInboundContext.mockClear();
+    mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mockClear();
+
+    groupMsgHandler!(makeGroupMsg({
+      senderPubkey: "other-user",
+      senderNametag: "bob",
+      content: "hey @Test-Agent what's up?",
+    }));
+
+    const ctx = mockRuntime.channel.reply.finalizeInboundContext.mock.calls[0][0];
+    expect(ctx.WasMentioned).toBe(true);
   });
 });
