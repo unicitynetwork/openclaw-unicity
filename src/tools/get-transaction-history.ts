@@ -7,7 +7,10 @@ import { getCoinDecimals, toHumanReadable } from "../assets.js";
 export const getTransactionHistoryTool = {
   name: "unicity_get_transaction_history",
   description:
-    "Get recent transaction history for the wallet. Returns the most recent transactions first.",
+    "Get recent transaction history for the wallet. Returns the most recent transactions first. " +
+    "Entries with the same transferId belong to the same logical operation (e.g. a split-and-send). " +
+    "In a split, the original token is burned (SENT for the full token value) and a smaller token is minted and sent to the recipient. " +
+    "Only the smaller amount is the actual transfer — the larger SENT entry is the burn, not an additional transfer.",
   parameters: Type.Object({
     limit: Type.Optional(Type.Number({ description: "Maximum number of entries to return (default 20)", minimum: 1 })),
   }),
@@ -32,7 +35,8 @@ export const getTransactionHistoryTool = {
         : e.type === "RECEIVED" && e.senderPubkey
           ? ` from ${e.senderPubkey.slice(0, 12)}…`
           : "";
-      return `[${time}] ${e.type} ${amount} ${e.symbol}${peer}`;
+      const txRef = e.transferId ? ` [tx:${e.transferId.slice(0, 8)}]` : "";
+      return `[${time}] ${e.type} ${amount} ${e.symbol}${peer}${txRef}`;
     });
 
     return {
