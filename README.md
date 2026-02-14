@@ -7,6 +7,7 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/@unicitylabs/openclaw-unicity"><img src="https://img.shields.io/npm/v/@unicitylabs/openclaw-unicity" alt="npm version" /></a>
   <a href="https://github.com/unicitynetwork/openclaw-unicity/blob/main/LICENSE"><img src="https://img.shields.io/github/license/unicitynetwork/openclaw-unicity" alt="license" /></a>
+  <a href="https://deepwiki.com/unicitynetwork/openclaw-unicity"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
 </p>
 
 ---
