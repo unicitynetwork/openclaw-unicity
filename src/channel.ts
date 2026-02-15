@@ -726,10 +726,7 @@ export const unicityChannelPlugin = {
 
   // -- groups adapter (group chat policy) -----------------------------------
   groups: {
-    resolveRequireMention: () => true,
-    resolveToolPolicy: () => ({
-      deny: ["unicity_send_tokens", "unicity_respond_payment_request", "unicity_top_up"],
-    }),
+    resolveRequireMention: () => false,
   },
 
   // -- directory adapter (group/member listing) -----------------------------

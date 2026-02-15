@@ -958,15 +958,12 @@ describe("outbound.sendText routing", () => {
 });
 
 describe("groups adapter", () => {
-  it("resolveRequireMention returns true", () => {
-    expect(unicityChannelPlugin.groups.resolveRequireMention()).toBe(true);
+  it("resolveRequireMention returns false (agent decides relevance)", () => {
+    expect(unicityChannelPlugin.groups.resolveRequireMention()).toBe(false);
   });
 
-  it("resolveToolPolicy denies financial tools in groups", () => {
-    const policy = unicityChannelPlugin.groups.resolveToolPolicy();
-    expect(policy.deny).toContain("unicity_send_tokens");
-    expect(policy.deny).toContain("unicity_respond_payment_request");
-    expect(policy.deny).toContain("unicity_top_up");
+  it("does not restrict tools in groups", () => {
+    expect(unicityChannelPlugin.groups.resolveToolPolicy).toBeUndefined();
   });
 });
 
