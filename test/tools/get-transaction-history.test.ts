@@ -55,9 +55,23 @@ describe("getTransactionHistoryTool", () => {
     const result = await getTransactionHistoryTool.execute("call-burn", {});
     const text = result.content[0].text;
 
-    // Real transfer keeps SENT label and shows recipient
     expect(text).toContain("SENT 100 ALPHA to @alice");
-    // Burn entry gets relabeled and hides misleading recipient
+    expect(text).toContain("BURN (split) 800 ALPHA");
+    expect(text).not.toContain("BURN (split) 800 ALPHA to @alice");
+  });
+
+  it("labels largest SENT as BURN when multiple SENT share a transferId", async () => {
+    mockGetHistory.mockReturnValue([
+      { id: "1", type: "SENT", amount: "100", coinId: "ALPHA", symbol: "ALPHA", timestamp: 1700001000000, recipientNametag: "alice", transferId: "tx-shared" },
+      { id: "2", type: "SENT", amount: "800", coinId: "ALPHA", symbol: "ALPHA", timestamp: 1700000000000, recipientNametag: "alice", transferId: "tx-shared" },
+    ]);
+
+    const result = await getTransactionHistoryTool.execute("call-shared-tx", {});
+    const text = result.content[0].text;
+
+    // Smaller amount is the real transfer
+    expect(text).toContain("SENT 100 ALPHA to @alice");
+    // Larger amount is the burn — relabeled, recipient suppressed
     expect(text).toContain("BURN (split) 800 ALPHA");
     expect(text).not.toContain("BURN (split) 800 ALPHA to @alice");
   });

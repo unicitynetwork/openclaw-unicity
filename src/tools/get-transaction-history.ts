@@ -27,13 +27,32 @@ export const getTransactionHistoryTool = {
       };
     }
 
+    // Identify burn entries: when multiple SENT entries share a transferId,
+    // the one with the largest amount is the burn (original token destroyed
+    // during a split), not a real transfer. Also catch SENT without transferId.
+    const burnIds = new Set<string>();
+    const sentByTx = new Map<string, typeof limited>();
+    for (const e of limited) {
+      if (e.type === "SENT" && e.transferId) {
+        const group = sentByTx.get(e.transferId) ?? [];
+        group.push(e);
+        sentByTx.set(e.transferId, group);
+      }
+    }
+    for (const group of sentByTx.values()) {
+      if (group.length > 1) {
+        // The largest SENT in the group is the burn
+        const sorted = [...group].sort((a, b) => BigInt(b.amount) > BigInt(a.amount) ? 1 : -1);
+        burnIds.add(sorted[0].id);
+      }
+    }
+
     const lines = limited.map((e) => {
       const time = new Date(e.timestamp).toISOString();
       const decimals = getCoinDecimals(e.coinId) ?? 0;
       const amount = toHumanReadable(e.amount, decimals);
 
-      // A SENT entry without a transferId is a token burn (split), not a real transfer.
-      const isBurn = e.type === "SENT" && !e.transferId;
+      const isBurn = (e.type === "SENT" && !e.transferId) || burnIds.has(e.id);
       const label = isBurn ? "BURN (split)" : e.type;
 
       const peer = e.type === "SENT" && !isBurn && e.recipientNametag
