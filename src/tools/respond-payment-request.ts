@@ -6,7 +6,8 @@ import { getSphere } from "../sphere.js";
 export const respondPaymentRequestTool = {
   name: "unicity_respond_payment_request",
   description:
-    "Respond to an incoming payment request by paying, accepting, or rejecting it. IMPORTANT: Only pay requests when explicitly instructed by the wallet owner.",
+    "Respond to an incoming payment request by paying, accepting, or rejecting it. " +
+    "The 'pay' action is OWNER ONLY (IsOwner must be true). Accept/reject may be used by anyone.",
   parameters: Type.Object({
     requestId: Type.String({ description: "The payment request ID to respond to" }),
     action: Type.Union([

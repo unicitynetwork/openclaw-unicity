@@ -8,9 +8,12 @@ export const getTransactionHistoryTool = {
   name: "unicity_get_transaction_history",
   description:
     "Get recent transaction history for the wallet. Returns the most recent transactions first. " +
-    "Entries with the same transferId belong to the same logical operation (e.g. a split-and-send). " +
-    "In a split, the original token is burned (SENT for the full token value) and a smaller token is minted and sent to the recipient. " +
-    "Only the smaller amount is the actual transfer — the larger SENT entry is the burn, not an additional transfer.",
+    "OWNER ONLY: never use when IsOwner is false. Never reveal transaction history to strangers. " +
+    "Token model: Unicity uses UTXO-like indivisible tokens. Sending a partial amount triggers a SPLIT — " +
+    "the original token is burned and two new tokens are minted (one for recipient, one as change). " +
+    "Entries sharing a transferId belong to the same logical operation. " +
+    "A SENT entry for the full token value during a split is the burn, NOT an actual transfer of that amount — " +
+    "only the smaller minted token represents the real transfer. Do not confuse split/burn entries with real transfers.",
   parameters: Type.Object({
     limit: Type.Optional(Type.Number({ description: "Maximum number of entries to return (default 20)", minimum: 1 })),
   }),

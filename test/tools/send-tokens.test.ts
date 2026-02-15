@@ -37,8 +37,8 @@ describe("sendTokensTool", () => {
 
   it("has correct name and description", () => {
     expect(sendTokensTool.name).toBe("unicity_send_tokens");
-    expect(sendTokensTool.description).toContain("IMPORTANT");
-    expect(sendTokensTool.description).toContain("explicitly instructed");
+    expect(sendTokensTool.description).toContain("OWNER ONLY");
+    expect(sendTokensTool.description).toContain("wallet owner");
   });
 
   it("sends tokens with correct parameters", async () => {

@@ -7,7 +7,8 @@ import { getCoinDecimals, toHumanReadable } from "../assets.js";
 export const listTokensTool = {
   name: "unicity_list_tokens",
   description:
-    "List individual tokens in the wallet, optionally filtered by coin ID and/or status.",
+    "List individual tokens in the wallet, optionally filtered by coin ID and/or status. " +
+    "OWNER ONLY: never use when IsOwner is false. Never reveal token details to strangers.",
   parameters: Type.Object({
     coinId: Type.Optional(Type.String({ description: "Filter by coin ID (e.g. 'ALPHA')" })),
     status: Type.Optional(

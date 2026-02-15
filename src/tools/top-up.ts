@@ -8,7 +8,8 @@ import { FAUCET_API_URL } from "../config.js";
 export const topUpTool = {
   name: "unicity_top_up",
   description:
-    "Request test tokens from the Unicity faucet. This is for testnet only.",
+    "Request test tokens from the Unicity faucet. This is for testnet only. " +
+    "OWNER ONLY: never use when IsOwner is false.",
   parameters: Type.Object({
     coin: Type.String({ description: "Coin to request by name or symbol (e.g. UCT, BTC, SOL)" }),
     amount: Type.Number({ description: "Amount to request (can be decimal)" }),

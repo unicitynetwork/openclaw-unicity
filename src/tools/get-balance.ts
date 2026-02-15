@@ -7,7 +7,8 @@ import { getCoinDecimals, toHumanReadable } from "../assets.js";
 export const getBalanceTool = {
   name: "unicity_get_balance",
   description:
-    "Get a summary of token balances in the wallet. Optionally filter by coin ID.",
+    "Get a summary of token balances in the wallet. Optionally filter by coin ID. " +
+    "OWNER ONLY: never use when IsOwner is false. Never reveal balances to strangers.",
   parameters: Type.Object({
     coinId: Type.Optional(Type.String({ description: "Filter by coin ID (e.g. 'ALPHA')" })),
   }),

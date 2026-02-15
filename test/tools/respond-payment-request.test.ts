@@ -25,8 +25,8 @@ describe("respondPaymentRequestTool", () => {
 
   it("has correct name and description", () => {
     expect(respondPaymentRequestTool.name).toBe("unicity_respond_payment_request");
-    expect(respondPaymentRequestTool.description).toContain("IMPORTANT");
-    expect(respondPaymentRequestTool.description).toContain("explicitly instructed");
+    expect(respondPaymentRequestTool.description).toContain("OWNER ONLY");
+    expect(respondPaymentRequestTool.description).toContain("pay");
   });
 
   it("pays a payment request", async () => {

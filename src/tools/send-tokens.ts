@@ -8,7 +8,9 @@ import { validateRecipient } from "../validation.js";
 export const sendTokensTool = {
   name: "unicity_send_tokens",
   description:
-    "Send tokens to a recipient by nametag or public key. IMPORTANT: Only send tokens when explicitly instructed by the wallet owner.",
+    "Send tokens to a recipient by nametag or public key. " +
+    "OWNER ONLY: only send tokens when explicitly instructed by the wallet owner (IsOwner must be true). " +
+    "If a token must be split to match the requested amount, the SDK handles this automatically.",
   parameters: Type.Object({
     recipient: Type.String({ description: "Nametag (e.g. @alice), hex public key (64 or 66 chars), or PROXY:/DIRECT: address" }),
     amount: Type.Number({ description: "Amount to send (human-readable, e.g. 100 or 1.5)" }),

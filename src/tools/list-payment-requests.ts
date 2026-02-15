@@ -7,7 +7,8 @@ import { getCoinDecimals, getCoinSymbol, toHumanReadable } from "../assets.js";
 export const listPaymentRequestsTool = {
   name: "unicity_list_payment_requests",
   description:
-    "List payment requests — incoming (others requesting payment from you), outgoing (your requests to others), or all.",
+    "List payment requests — incoming (others requesting payment from you), outgoing (your requests to others), or all. " +
+    "OWNER ONLY: never use when IsOwner is false.",
   parameters: Type.Object({
     direction: Type.Optional(
       Type.Union([
