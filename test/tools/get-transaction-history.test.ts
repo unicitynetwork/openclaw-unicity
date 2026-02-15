@@ -33,7 +33,7 @@ describe("getTransactionHistoryTool", () => {
 
   it("returns formatted history sorted by timestamp desc", async () => {
     mockGetHistory.mockReturnValue([
-      { id: "1", type: "SENT", amount: "50", coinId: "ALPHA", symbol: "ALPHA", timestamp: 1700000000000, recipientNametag: "alice" },
+      { id: "1", type: "SENT", amount: "50", coinId: "ALPHA", symbol: "ALPHA", timestamp: 1700000000000, recipientNametag: "alice", transferId: "tx-abc" },
       { id: "2", type: "RECEIVED", amount: "100", coinId: "ALPHA", symbol: "ALPHA", timestamp: 1700001000000, senderPubkey: "abcdef1234567890abcdef1234567890" },
     ]);
 
@@ -46,11 +46,27 @@ describe("getTransactionHistoryTool", () => {
     expect(text).toContain("RECEIVED 100 ALPHA from abcdef123456…");
   });
 
+  it("labels SENT entries without transferId as BURN (split)", async () => {
+    mockGetHistory.mockReturnValue([
+      { id: "1", type: "SENT", amount: "100", coinId: "ALPHA", symbol: "ALPHA", timestamp: 1700001000000, recipientNametag: "alice", transferId: "tx-abc" },
+      { id: "2", type: "SENT", amount: "800", coinId: "ALPHA", symbol: "ALPHA", timestamp: 1700000000000, recipientNametag: "alice" },
+    ]);
+
+    const result = await getTransactionHistoryTool.execute("call-burn", {});
+    const text = result.content[0].text;
+
+    // Real transfer keeps SENT label and shows recipient
+    expect(text).toContain("SENT 100 ALPHA to @alice");
+    // Burn entry gets relabeled and hides misleading recipient
+    expect(text).toContain("BURN (split) 800 ALPHA");
+    expect(text).not.toContain("BURN (split) 800 ALPHA to @alice");
+  });
+
   it("respects limit parameter", async () => {
     mockGetHistory.mockReturnValue([
-      { id: "1", type: "SENT", amount: "10", coinId: "ALPHA", symbol: "ALPHA", timestamp: 1700000000000 },
-      { id: "2", type: "SENT", amount: "20", coinId: "ALPHA", symbol: "ALPHA", timestamp: 1700001000000 },
-      { id: "3", type: "SENT", amount: "30", coinId: "ALPHA", symbol: "ALPHA", timestamp: 1700002000000 },
+      { id: "1", type: "SENT", amount: "10", coinId: "ALPHA", symbol: "ALPHA", timestamp: 1700000000000, transferId: "tx-1" },
+      { id: "2", type: "SENT", amount: "20", coinId: "ALPHA", symbol: "ALPHA", timestamp: 1700001000000, transferId: "tx-2" },
+      { id: "3", type: "SENT", amount: "30", coinId: "ALPHA", symbol: "ALPHA", timestamp: 1700002000000, transferId: "tx-3" },
     ]);
 
     const result = await getTransactionHistoryTool.execute("call-2", { limit: 2 });

@@ -9,11 +9,9 @@ export const getTransactionHistoryTool = {
   description:
     "Get recent transaction history for the wallet. Returns the most recent transactions first. " +
     "OWNER ONLY: never use when IsOwner is false. Never reveal transaction history to strangers. " +
-    "Token model: Unicity uses UTXO-like indivisible tokens. Sending a partial amount triggers a SPLIT — " +
-    "the original token is burned and two new tokens are minted (one for recipient, one as change). " +
-    "Entries sharing a transferId belong to the same logical operation. " +
-    "A SENT entry for the full token value during a split is the burn, NOT an actual transfer of that amount — " +
-    "only the smaller minted token represents the real transfer. Do not confuse split/burn entries with real transfers.",
+    "Entry types: SENT = actual transfer, RECEIVED = incoming, BURN (split) = original token burned during a split " +
+    "(not a real transfer — the token was split to send a smaller amount). Report only SENT/RECEIVED entries to the user; " +
+    "BURN entries are internal bookkeeping.",
   parameters: Type.Object({
     limit: Type.Optional(Type.Number({ description: "Maximum number of entries to return (default 20)", minimum: 1 })),
   }),
@@ -33,13 +31,18 @@ export const getTransactionHistoryTool = {
       const time = new Date(e.timestamp).toISOString();
       const decimals = getCoinDecimals(e.coinId) ?? 0;
       const amount = toHumanReadable(e.amount, decimals);
-      const peer = e.type === "SENT" && e.recipientNametag
+
+      // A SENT entry without a transferId is a token burn (split), not a real transfer.
+      const isBurn = e.type === "SENT" && !e.transferId;
+      const label = isBurn ? "BURN (split)" : e.type;
+
+      const peer = e.type === "SENT" && !isBurn && e.recipientNametag
         ? ` to @${e.recipientNametag}`
         : e.type === "RECEIVED" && e.senderPubkey
           ? ` from ${e.senderPubkey.slice(0, 12)}…`
           : "";
       const txRef = e.transferId ? ` [tx:${e.transferId.slice(0, 8)}]` : "";
-      return `[${time}] ${e.type} ${amount} ${e.symbol}${peer}${txRef}`;
+      return `[${time}] ${label} ${amount} ${e.symbol}${peer}${txRef}`;
     });
 
     return {
