@@ -243,6 +243,10 @@ export const unicityChannelPlugin = {
       ctx.log?.info(`[${ctx.account.accountId}] Subscribing to DMs (pubkey: ${sphere.identity?.chainPubkey?.slice(0, 16)}...)`);
 
       const unsub = sphere.communications.onDirectMessage((msg) => {
+        // Immediately signal that we're composing a reply
+        sphere.communications.sendComposingIndicator(msg.senderPubkey)
+          .catch((err: unknown) => ctx.log?.error(`[${ctx.account.accountId}] Composing indicator failed: ${err}`));
+
         // Use @nametag if available, otherwise raw pubkey
         const peerId = msg.senderNametag ? `@${msg.senderNametag}` : msg.senderPubkey;
         ctx.log?.info(`[${ctx.account.accountId}] DM received from ${peerId}: ${msg.content.slice(0, 80)}`);

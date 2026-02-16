@@ -176,6 +176,7 @@ describe("gateway.startAccount", () => {
           return vi.fn();
         }),
         sendDM: vi.fn().mockResolvedValue({ id: "dm-1" }),
+        sendComposingIndicator: vi.fn().mockResolvedValue(undefined),
       },
       on: vi.fn().mockReturnValue(vi.fn()),
     };
@@ -1048,6 +1049,7 @@ describe("group message backfill debounce", () => {
       communications: {
         onDirectMessage: vi.fn().mockReturnValue(vi.fn()),
         sendDM: vi.fn().mockResolvedValue({ id: "dm-1" }),
+        sendComposingIndicator: vi.fn().mockResolvedValue(undefined),
       },
       on: vi.fn().mockReturnValue(vi.fn()),
       groupChat: {
