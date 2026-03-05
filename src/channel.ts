@@ -248,8 +248,19 @@ export const unicityChannelPlugin = {
       const seenDmIds = new Set<string>();
       const DM_SEEN_MAX = 1000;
 
+      // Collect all known representations of "self" so we can detect echoed-back
+      // messages.  The SDK's built-in self-check compares transport pubkey against
+      // chainPubkey, but those may differ in format (33-byte compressed vs 32-byte
+      // x-only Nostr key), letting self-messages slip through.
+      const selfPubkeys = new Set<string>();
+      if (sphere.identity?.chainPubkey) selfPubkeys.add(sphere.identity.chainPubkey);
+      const myNostrPubkey = sphere.groupChat?.getMyPublicKey?.() ?? null;
+      if (myNostrPubkey) selfPubkeys.add(myNostrPubkey);
 
       const unsub = sphere.communications.onDirectMessage((msg) => {
+        // Skip messages from self (own DMs echoed back by the relay)
+        if (selfPubkeys.has(msg.senderPubkey)) return;
+
         // Deduplicate: skip already-processed messages (relays may deliver dupes)
         if (msg.id && seenDmIds.has(msg.id)) return;
         if (msg.id) {
@@ -479,11 +490,6 @@ export const unicityChannelPlugin = {
         timestamp: number;
         replyToId?: string;
       };
-
-      // Nostr pubkey for self-message detection and reply-to-self detection.
-      // Group messages use the 32-byte x-only Nostr pubkey (event.pubkey),
-      // NOT the 33-byte compressed chainPubkey.
-      const myNostrPubkey = sphere.groupChat?.getMyPublicKey?.() ?? null;
 
       // Detect if a group message is a reply to one of the agent's own messages.
       // Used to set WasMentioned so the mention gate treats replies-to-self as
