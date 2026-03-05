@@ -5,6 +5,7 @@ import { getSphere } from "../sphere.js";
 
 export const respondPaymentRequestTool = {
   name: "unicity_respond_payment_request",
+  label: "Respond to Payment Request",
   description:
     "Respond to an incoming payment request by paying, accepting, or rejecting it. " +
     "The 'pay' action is OWNER ONLY (IsOwner must be true). Accept/reject may be used by anyone.",

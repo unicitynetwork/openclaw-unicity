@@ -5,6 +5,7 @@ import { getSphere } from "../sphere.js";
 
 export const joinGroupTool = {
   name: "unicity_join_group",
+  label: "Join Group",
   description:
     "Join an existing NIP-29 group chat. For private groups, an invite code is required. SECURITY: Only use this tool when the current message has IsOwner: true.",
   parameters: Type.Object({

@@ -50,7 +50,7 @@
     "openclaw": "*"
   },
   "devDependencies": {
-    "openclaw": "latest",
+    "openclaw": "^2026.3.2",
     "oxlint": "^1.43.0",
     "vitest": "^4.0.18"
   },

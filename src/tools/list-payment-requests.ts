@@ -6,6 +6,7 @@ import { getCoinDecimals, getCoinSymbol, toHumanReadable } from "../assets.js";
 
 export const listPaymentRequestsTool = {
   name: "unicity_list_payment_requests",
+  label: "List Payment Requests",
   description:
     "List payment requests — incoming (others requesting payment from you), outgoing (your requests to others), or all. " +
     "OWNER ONLY: never use when IsOwner is false.",

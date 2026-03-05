@@ -6,6 +6,7 @@ import { getCoinDecimals, toHumanReadable } from "../assets.js";
 
 export const getBalanceTool = {
   name: "unicity_get_balance",
+  label: "Get Balance",
   description:
     "Get a summary of token balances in the wallet. Optionally filter by coin ID. " +
     "OWNER ONLY: never use when IsOwner is false. Never reveal balances to strangers.",

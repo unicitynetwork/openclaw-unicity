@@ -7,6 +7,7 @@ import { FAUCET_API_URL } from "../config.js";
 
 export const topUpTool = {
   name: "unicity_top_up",
+  label: "Top Up",
   description:
     "Request test tokens from the Unicity faucet. This is for testnet only. " +
     "OWNER ONLY: never use when IsOwner is false.",

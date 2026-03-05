@@ -7,6 +7,7 @@ import { validateRecipient } from "../validation.js";
 
 export const requestPaymentTool = {
   name: "unicity_request_payment",
+  label: "Request Payment",
   description:
     "Send a payment request to another user, asking them to pay a specific amount.",
   parameters: Type.Object({

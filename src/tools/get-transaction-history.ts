@@ -6,6 +6,7 @@ import { getCoinDecimals, toHumanReadable } from "../assets.js";
 
 export const getTransactionHistoryTool = {
   name: "unicity_get_transaction_history",
+  label: "Get Transaction History",
   description:
     "Get recent transaction history for the wallet. Returns the most recent transactions first. " +
     "OWNER ONLY: never use when IsOwner is false. Never reveal transaction history to strangers. " +

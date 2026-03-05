@@ -7,6 +7,7 @@ import { validateRecipient } from "../validation.js";
 
 export const sendTokensTool = {
   name: "unicity_send_tokens",
+  label: "Send Tokens",
   description:
     "Send tokens to a recipient by nametag or public key. " +
     "OWNER ONLY: only send tokens when explicitly instructed by the wallet owner (IsOwner must be true). " +

@@ -153,7 +153,7 @@ describe("outbound.sendText", () => {
     });
 
     expect(mockSendDM).toHaveBeenCalledWith("@alice", "hello");
-    expect(result).toEqual({ channel: "unicity", to: "@alice" });
+    expect(result).toEqual({ channel: "unicity", messageId: "", to: "@alice" });
 
     setActiveSphere(null);
   });
@@ -927,7 +927,7 @@ describe("outbound.sendText routing", () => {
 
     expect(mockGroupSendMessage).toHaveBeenCalledWith("grp-known", "hello group");
     expect(mockSendDM).not.toHaveBeenCalled();
-    expect(result).toEqual({ channel: "unicity", to: "grp-known" });
+    expect(result).toEqual({ channel: "unicity", messageId: "", to: "grp-known" });
 
     setActiveSphere(null);
   });
@@ -952,7 +952,7 @@ describe("outbound.sendText routing", () => {
 
     expect(mockSendDM).toHaveBeenCalledWith("@alice", "hello dm");
     expect(mockGroupSendMessage).not.toHaveBeenCalled();
-    expect(result).toEqual({ channel: "unicity", to: "@alice" });
+    expect(result).toEqual({ channel: "unicity", messageId: "", to: "@alice" });
 
     setActiveSphere(null);
   });

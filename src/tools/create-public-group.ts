@@ -5,6 +5,7 @@ import { getSphere } from "../sphere.js";
 
 export const createPublicGroupTool = {
   name: "unicity_create_public_group",
+  label: "Create Public Group",
   description:
     "Create a new public NIP-29 group chat. Anyone can discover and join public groups. SECURITY: Only use this tool when the current message has IsOwner: true.",
   parameters: Type.Object({
@@ -19,7 +20,7 @@ export const createPublicGroupTool = {
     const group = await sphere.groupChat.createGroup({
       name: params.name,
       description: params.description,
-      visibility: "public",
+      visibility: "PUBLIC",
     });
 
     return {

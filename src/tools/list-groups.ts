@@ -5,6 +5,7 @@ import { getSphere } from "../sphere.js";
 
 export const listGroupsTool = {
   name: "unicity_list_groups",
+  label: "List Groups",
   description:
     "List NIP-29 group chats. Use scope 'joined' for groups you belong to, or 'available' to discover public groups.",
   parameters: Type.Object({

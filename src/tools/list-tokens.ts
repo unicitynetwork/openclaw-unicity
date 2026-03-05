@@ -6,6 +6,7 @@ import { getCoinDecimals, toHumanReadable } from "../assets.js";
 
 export const listTokensTool = {
   name: "unicity_list_tokens",
+  label: "List Tokens",
   description:
     "List individual tokens in the wallet, optionally filtered by coin ID and/or status. " +
     "OWNER ONLY: never use when IsOwner is false. Never reveal token details to strangers.",

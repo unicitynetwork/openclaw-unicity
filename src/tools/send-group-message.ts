@@ -5,6 +5,7 @@ import { getSphere } from "../sphere.js";
 
 export const sendGroupMessageTool = {
   name: "unicity_send_group_message",
+  label: "Send Group Message",
   description:
     "Send a message to a NIP-29 group chat. SECURITY: Only use this tool when the current message has IsOwner: true.",
   parameters: Type.Object({

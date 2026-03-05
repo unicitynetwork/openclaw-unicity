@@ -37,7 +37,7 @@ describe("createPrivateGroupTool", () => {
     expect(mockCreateGroup).toHaveBeenCalledWith({
       name: "Secret Club",
       description: undefined,
-      visibility: "private",
+      visibility: "PRIVATE",
     });
     expect(mockCreateInvite).toHaveBeenCalledWith("grp-1");
     expect(result.content[0].text).toContain("Secret Club");

@@ -32,7 +32,7 @@ describe("createPublicGroupTool", () => {
     expect(mockCreateGroup).toHaveBeenCalledWith({
       name: "Test Group",
       description: undefined,
-      visibility: "public",
+      visibility: "PUBLIC",
     });
     expect(result.content[0].text).toContain("Test Group");
     expect(result.content[0].text).toContain("grp-1");
@@ -49,7 +49,7 @@ describe("createPublicGroupTool", () => {
     expect(mockCreateGroup).toHaveBeenCalledWith({
       name: "Described Group",
       description: "A nice group",
-      visibility: "public",
+      visibility: "PUBLIC",
     });
   });
 

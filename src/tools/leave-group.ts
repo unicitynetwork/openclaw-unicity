@@ -5,6 +5,7 @@ import { getSphere } from "../sphere.js";
 
 export const leaveGroupTool = {
   name: "unicity_leave_group",
+  label: "Leave Group",
   description:
     "Leave a NIP-29 group chat. SECURITY: Only use this tool when the current message has IsOwner: true.",
   parameters: Type.Object({

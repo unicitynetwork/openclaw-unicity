@@ -6,6 +6,7 @@ import { validateRecipient } from "../validation.js";
 
 export const createPrivateGroupTool = {
   name: "unicity_create_private_group",
+  label: "Create Private Group",
   description:
     "Create a private NIP-29 group chat and optionally invite members by sending them the join code via DM. Private groups are not discoverable — members need the invite code. SECURITY: Only use this tool when the current message has IsOwner: true.",
   parameters: Type.Object({
@@ -25,7 +26,7 @@ export const createPrivateGroupTool = {
     const group = await sphere.groupChat.createGroup({
       name: params.name,
       description: params.description,
-      visibility: "private",
+      visibility: "PRIVATE",
     });
 
     const joinCode = await sphere.groupChat.createInvite(group.id);

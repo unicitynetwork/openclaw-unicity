@@ -208,7 +208,7 @@ export const unicityChannelPlugin = {
       } else {
         await sphere.communications.sendDM(ctx.to, ctx.text ?? "");
       }
-      return { channel: "unicity", to: ctx.to };
+      return { channel: "unicity", messageId: "", to: ctx.to };
     },
   },
 
