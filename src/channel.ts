@@ -242,7 +242,30 @@ export const unicityChannelPlugin = {
 
       ctx.log?.info(`[${ctx.account.accountId}] Subscribing to DMs (pubkey: ${sphere.identity?.chainPubkey?.slice(0, 16)}...)`);
 
+      // Track DM start time and seen IDs to skip historical replays from the relay.
+      // The SDK fires onDirectMessage for every cached/replayed DM on connect.
+      const dmStartTime = Math.floor(Date.now() / 1000);
+      const seenDmIds = new Set<string>();
+      const DM_SEEN_MAX = 1000;
+
+
       const unsub = sphere.communications.onDirectMessage((msg) => {
+        // Deduplicate: skip already-processed messages (relays may deliver dupes)
+        if (msg.id && seenDmIds.has(msg.id)) return;
+        if (msg.id) {
+          seenDmIds.add(msg.id);
+          if (seenDmIds.size > DM_SEEN_MAX) {
+            const first = seenDmIds.values().next().value!;
+            seenDmIds.delete(first);
+          }
+        }
+
+        // Skip historical messages replayed on connect
+        if (msg.timestamp && msg.timestamp < dmStartTime) {
+          ctx.log?.debug(`[${ctx.account.accountId}] Skipping historical DM (ts=${msg.timestamp} < start=${dmStartTime})`);
+          return;
+        }
+
         // Immediately signal that we're composing a reply
         sphere.communications.sendComposingIndicator(msg.senderPubkey)
           .catch((err: unknown) => ctx.log?.error(`[${ctx.account.accountId}] Composing indicator failed: ${err}`));
