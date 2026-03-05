@@ -257,25 +257,15 @@ export const unicityChannelPlugin = {
       const myNostrPubkey = sphere.groupChat?.getMyPublicKey?.() ?? null;
       if (myNostrPubkey) selfPubkeys.add(myNostrPubkey);
 
-      const unsub = sphere.communications.onDirectMessage((msg) => {
-        // Skip messages from self (own DMs echoed back by the relay)
-        if (selfPubkeys.has(msg.senderPubkey)) return;
+      // Per-sender queue: while a reply is being generated for a sender, hold
+      // the latest incoming message so it gets processed after the current reply
+      // finishes.  Prevents duplicate replies while not dropping follow-ups.
+      type DmMsg = { id: string; senderPubkey: string; senderNametag?: string; recipientPubkey: string; content: string; timestamp: number; isRead: boolean };
+      const sendersInFlight = new Set<string>();
+      const pendingPerSender = new Map<string, DmMsg>();
 
-        // Deduplicate: skip already-processed messages (relays may deliver dupes)
-        if (msg.id && seenDmIds.has(msg.id)) return;
-        if (msg.id) {
-          seenDmIds.add(msg.id);
-          if (seenDmIds.size > DM_SEEN_MAX) {
-            const first = seenDmIds.values().next().value!;
-            seenDmIds.delete(first);
-          }
-        }
-
-        // Skip historical messages replayed on connect
-        if (msg.timestamp && msg.timestamp < dmStartTime) {
-          ctx.log?.debug(`[${ctx.account.accountId}] Skipping historical DM (ts=${msg.timestamp} < start=${dmStartTime})`);
-          return;
-        }
+      function dispatchDm(msg: DmMsg): void {
+        sendersInFlight.add(msg.senderPubkey);
 
         // Immediately signal that we're composing a reply
         sphere.communications.sendComposingIndicator(msg.senderPubkey)
@@ -354,7 +344,47 @@ export const unicityChannelPlugin = {
           })
           .catch((err: unknown) => {
             ctx.log?.error(`[${ctx.account.accountId}] Reply dispatch error: ${err}`);
+          })
+          .finally(() => {
+            sendersInFlight.delete(msg.senderPubkey);
+            // If a follow-up message arrived while we were replying, process it now
+            const pending = pendingPerSender.get(msg.senderPubkey);
+            if (pending) {
+              pendingPerSender.delete(msg.senderPubkey);
+              ctx.log?.info(`[${ctx.account.accountId}] Processing queued DM from ${peerId}`);
+              dispatchDm(pending);
+            }
           });
+      }
+
+      const unsub = sphere.communications.onDirectMessage((msg) => {
+        // Skip messages from self (own DMs echoed back by the relay)
+        if (selfPubkeys.has(msg.senderPubkey)) return;
+
+        // Deduplicate: skip already-processed messages (relays may deliver dupes)
+        if (msg.id && seenDmIds.has(msg.id)) return;
+        if (msg.id) {
+          seenDmIds.add(msg.id);
+          if (seenDmIds.size > DM_SEEN_MAX) {
+            const first = seenDmIds.values().next().value!;
+            seenDmIds.delete(first);
+          }
+        }
+
+        // Skip historical messages replayed on connect
+        if (msg.timestamp && msg.timestamp < dmStartTime) {
+          ctx.log?.debug(`[${ctx.account.accountId}] Skipping historical DM (ts=${msg.timestamp} < start=${dmStartTime})`);
+          return;
+        }
+
+        // Per-sender lock: queue if we're already generating a reply for this sender
+        if (sendersInFlight.has(msg.senderPubkey)) {
+          ctx.log?.debug(`[${ctx.account.accountId}] Queuing DM from ${msg.senderPubkey.slice(0, 16)}… — reply in flight`);
+          pendingPerSender.set(msg.senderPubkey, msg);
+          return;
+        }
+
+        dispatchDm(msg);
       });
 
       ctx.log?.info(`[${ctx.account.accountId}] Unicity DM listener active`);
