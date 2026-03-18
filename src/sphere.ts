@@ -116,6 +116,7 @@ async function doInitSphere(
     ...(existingMnemonic ? { mnemonic: existingMnemonic } : { autoGenerate: true }),
     ...(cfg.nametag ? { nametag: cfg.nametag } : {}),
     ...(groupChat ? { groupChat: groupChatRelays ? { relays: groupChatRelays } : true } : {}),
+    dmSince: Math.floor(Date.now() / 1000) - 86400,
   });
 
   sphereInstance = result.sphere;
@@ -133,8 +134,10 @@ async function doInitSphere(
   }
 
   // Register nametag if configured and wallet doesn't have one yet
-  const walletNametag = result.sphere.identity?.nametag;
-  if (cfg.nametag && !walletNametag) {
+  // Normalize: strip leading '@' for consistent comparison
+  const walletNametag = result.sphere.identity?.nametag?.replace(/^@/, "");
+  const cfgNametag = cfg.nametag?.replace(/^@/, "");
+  if (cfgNametag && !walletNametag) {
     try {
       await result.sphere.registerNametag(cfg.nametag);
       const log = logger ?? console;
@@ -148,11 +151,31 @@ async function doInitSphere(
         console.warn(msg);
       }
     }
-  } else if (cfg.nametag && walletNametag && cfg.nametag !== walletNametag) {
+  } else if (cfgNametag && walletNametag && cfgNametag !== walletNametag) {
+    // Nametag changed — check if another address in this wallet already owns it,
+    // otherwise derive a new HD address and mint the nametag there.
     const log = logger ?? console;
-    log.warn(
-      `[unicity] Config nametag '${cfg.nametag}' differs from wallet nametag '${walletNametag}'. Wallet nametag is used. To change nametag, create a new wallet.`,
-    );
+    try {
+      const activeAddresses = result.sphere.getActiveAddresses() as
+        { index: number; nametag?: string }[];
+      const existing = activeAddresses.find(
+        (a) => a.nametag?.replace(/^@/, "") === cfgNametag,
+      );
+      if (existing) {
+        log.info(`[unicity] Switching to existing address ${existing.index} for nametag '${cfg.nametag}'...`);
+        await result.sphere.switchToAddress(existing.index);
+        log.info(`[unicity] Switched to address ${existing.index} with nametag '${cfg.nametag}'.`);
+      } else {
+        const nextIndex = activeAddresses.length > 0
+          ? Math.max(...activeAddresses.map((a) => a.index)) + 1
+          : 1;
+        log.info(`[unicity] Minting nametag '${cfg.nametag}' on new address ${nextIndex}...`);
+        await result.sphere.switchToAddress(nextIndex, { nametag: cfg.nametag });
+        log.info(`[unicity] Switched to address ${nextIndex} with nametag '${cfg.nametag}'.`);
+      }
+    } catch (err) {
+      log.warn(`[unicity] Failed to switch address for nametag '${cfg.nametag}': ${err}`);
+    }
   }
 
   // Send greeting DM to owner on first wallet creation

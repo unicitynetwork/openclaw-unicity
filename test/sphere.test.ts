@@ -4,6 +4,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 const mockSphereInit = vi.fn();
 const mockCreateNodeProviders = vi.fn();
 const mockRegisterNametag = vi.fn();
+const mockSwitchToAddress = vi.fn();
+const mockGetActiveAddresses = vi.fn();
 const mockDestroy = vi.fn();
 const mockMkdirSync = vi.fn();
 const mockWriteFileSync = vi.fn();
@@ -39,6 +41,8 @@ describe("sphere", () => {
       l1Address: "alpha1agent",
     },
     registerNametag: mockRegisterNametag,
+    switchToAddress: mockSwitchToAddress,
+    getActiveAddresses: mockGetActiveAddresses,
     destroy: mockDestroy,
   };
 
@@ -50,6 +54,8 @@ describe("sphere", () => {
       l1Address: "alpha1agent",
     },
     registerNametag: mockRegisterNametag,
+    switchToAddress: mockSwitchToAddress,
+    getActiveAddresses: mockGetActiveAddresses,
     destroy: mockDestroy,
   };
 
@@ -174,19 +180,42 @@ describe("sphere", () => {
     expect(mockRegisterNametag).toHaveBeenCalledWith("mybot");
   });
 
-  it("warns when config nametag differs from wallet nametag (no re-registration)", async () => {
+  it("switches to existing address when config nametag already exists in wallet", async () => {
     mockSphereInit.mockResolvedValue({
-      sphere: fakeSphere, // has nametag: "@agent"
+      sphere: fakeSphere, // has nametag: "@agent" at index 0
       created: false,
     });
+    mockGetActiveAddresses.mockReturnValue([
+      { index: 0, nametag: "@agent" },
+      { index: 1, nametag: "mybot" },
+    ]);
+    mockSwitchToAddress.mockResolvedValue(undefined);
     const logger = { info: vi.fn(), warn: vi.fn() };
 
     await initSphere({ network: "testnet", nametag: "mybot" }, logger);
 
-    // Should NOT attempt registration — SDK doesn't allow changing nametags
     expect(mockRegisterNametag).not.toHaveBeenCalled();
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining("Config nametag 'mybot' differs from wallet nametag '@agent'"),
+    expect(mockSwitchToAddress).toHaveBeenCalledWith(1);
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining("Switched to address 1 with nametag 'mybot'"),
+    );
+  });
+
+  it("mints nametag on new address when config nametag is unknown to wallet", async () => {
+    mockSphereInit.mockResolvedValue({
+      sphere: fakeSphere, // has nametag: "@agent" at index 0
+      created: false,
+    });
+    mockGetActiveAddresses.mockReturnValue([{ index: 0, nametag: "@agent" }]);
+    mockSwitchToAddress.mockResolvedValue(undefined);
+    const logger = { info: vi.fn(), warn: vi.fn() };
+
+    await initSphere({ network: "testnet", nametag: "newbot" }, logger);
+
+    expect(mockRegisterNametag).not.toHaveBeenCalled();
+    expect(mockSwitchToAddress).toHaveBeenCalledWith(1, { nametag: "newbot" });
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining("Switched to address 1 with nametag 'newbot'"),
     );
   });
 
