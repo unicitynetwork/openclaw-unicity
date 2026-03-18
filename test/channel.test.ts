@@ -487,6 +487,93 @@ describe("gateway.startAccount", () => {
     });
   });
 
+  // ===========================================================================
+  // Self-message and historical DM filtering (regression tests)
+  // ===========================================================================
+
+  it("skips historical DMs with timestamp older than startAccount time", async () => {
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+
+    dmHandler!({
+      id: "msg-old",
+      senderPubkey: "deadbeef",
+      senderNametag: "alice",
+      content: "old message",
+      timestamp: Date.now() - 60_000, // 60 seconds ago
+      isRead: false,
+    });
+
+    expect(mockRuntime.channel.reply.finalizeInboundContext).not.toHaveBeenCalled();
+    expect(mockCtx.log.debug).toHaveBeenCalledWith(
+      expect.stringContaining("Skipping historical DM"),
+    );
+  });
+
+  it("processes DMs with current or future timestamps", async () => {
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+
+    dmHandler!({
+      id: "msg-future",
+      senderPubkey: "deadbeef",
+      senderNametag: "alice",
+      content: "new message",
+      timestamp: Date.now() + 1000,
+      isRead: false,
+    });
+
+    expect(mockRuntime.channel.reply.finalizeInboundContext).toHaveBeenCalled();
+  });
+
+  it("skips DM from self when senderPubkey is x-only form of chainPubkey", async () => {
+    // Use realistic 33-byte compressed pubkey (66 hex chars)
+    mockSphere.identity.chainPubkey = "02" + "a".repeat(64);
+
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+
+    dmHandler!({
+      id: "msg-self-xonly",
+      senderPubkey: "a".repeat(64), // x-only = chainPubkey without 02 prefix
+      content: "echo from self",
+      timestamp: Date.now() + 1000,
+      isRead: false,
+    });
+
+    expect(mockRuntime.channel.reply.finalizeInboundContext).not.toHaveBeenCalled();
+  });
+
+  it("skips DM from self when senderPubkey exactly matches chainPubkey", async () => {
+    mockSphere.identity.chainPubkey = "02" + "a".repeat(64);
+
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+
+    dmHandler!({
+      id: "msg-self-exact",
+      senderPubkey: "02" + "a".repeat(64),
+      content: "exact match self",
+      timestamp: Date.now() + 1000,
+      isRead: false,
+    });
+
+    expect(mockRuntime.channel.reply.finalizeInboundContext).not.toHaveBeenCalled();
+  });
+
+  it("does not skip DMs from other users even with realistic 66-char chainPubkey", async () => {
+    mockSphere.identity.chainPubkey = "02" + "a".repeat(64);
+
+    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+
+    dmHandler!({
+      id: "msg-other",
+      senderPubkey: "b".repeat(64), // different key
+      senderNametag: "bob",
+      content: "hello from bob",
+      timestamp: Date.now() + 1000,
+      isRead: false,
+    });
+
+    expect(mockRuntime.channel.reply.finalizeInboundContext).toHaveBeenCalled();
+  });
+
   it("throws when sphere not set", async () => {
     setActiveSphere(null);
     cancelSphereWait();

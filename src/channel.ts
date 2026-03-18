@@ -244,16 +244,27 @@ export const unicityChannelPlugin = {
 
       // Track DM start time and seen IDs to skip historical replays from the relay.
       // The SDK fires onDirectMessage for every cached/replayed DM on connect.
-      const dmStartTime = Math.floor(Date.now() / 1000);
+      // msg.timestamp is milliseconds, so dmStartTime must be ms too.
+      const dmStartTime = Date.now();
       const seenDmIds = new Set<string>();
       const DM_SEEN_MAX = 1000;
 
       // Collect all known representations of "self" so we can detect echoed-back
-      // messages.  The SDK's built-in self-check compares transport pubkey against
-      // chainPubkey, but those may differ in format (33-byte compressed vs 32-byte
-      // x-only Nostr key), letting self-messages slip through.
+      // messages.  We must track BOTH the 33-byte compressed chainPubkey (02/03…)
+      // and the 32-byte x-only Nostr transport key (chainPubkey without prefix).
+      // The SDK's own self-check in CommunicationsModule has a bug where it
+      // compares transport pubkey (32-byte) against chainPubkey (33-byte), which
+      // never matches — so self-messages can leak through to dmHandlers.
       const selfPubkeys = new Set<string>();
-      if (sphere.identity?.chainPubkey) selfPubkeys.add(sphere.identity.chainPubkey);
+      if (sphere.identity?.chainPubkey) {
+        const cpk = sphere.identity.chainPubkey;
+        selfPubkeys.add(cpk);
+        // x-only transport key = compressed pubkey without the 02/03 prefix
+        if (cpk.length === 66 && (cpk.startsWith("02") || cpk.startsWith("03"))) {
+          selfPubkeys.add(cpk.slice(2));
+        }
+      }
+      // Also add the groupChat key (same value but grabbed independently for safety)
       const myNostrPubkey = sphere.groupChat?.getMyPublicKey?.() ?? null;
       if (myNostrPubkey) selfPubkeys.add(myNostrPubkey);
 
