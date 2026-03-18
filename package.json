@@ -44,13 +44,13 @@
   "dependencies": {
     "@clack/prompts": "^0.10.0",
     "@sinclair/typebox": "^0.34.48",
-    "@unicitylabs/sphere-sdk": "0.6.8-dev.2"
+    "@unicitylabs/sphere-sdk": "0.6.8-dev.3"
   },
   "peerDependencies": {
     "openclaw": "*"
   },
   "devDependencies": {
-    "openclaw": "^2026.3.2",
+    "openclaw": "^2026.3.13",
     "oxlint": "^1.43.0",
     "vitest": "^4.0.18"
   },
