@@ -721,19 +721,17 @@ export const unicityChannelPlugin = {
       // Store cleanup so auto-restart can tear down stale handlers
       previousGatewayCleanup = cleanupSubscriptions;
 
-      ctx.abortSignal.addEventListener("abort", () => {
-        cleanupSubscriptions();
-        previousGatewayCleanup = null;
-      }, { once: true });
-
-      return {
-        stop: () => {
+      // The gateway expects startAccount to return a Promise that stays pending
+      // while the channel is running. Resolving immediately triggers a restart loop.
+      return new Promise<void>((resolve) => {
+        ctx.abortSignal.addEventListener("abort", () => {
           cleanupSubscriptions();
           previousGatewayCleanup = null;
           ctx.setStatus({ connected: false, running: false });
           ctx.log?.info(`[${ctx.account.accountId}] Unicity channel stopped`);
-        },
-      };
+          resolve();
+        }, { once: true });
+      });
     },
   },
 

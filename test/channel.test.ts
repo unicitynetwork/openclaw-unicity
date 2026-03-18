@@ -164,9 +164,19 @@ describe("gateway.startAccount", () => {
   let mockSphere: any;
   let mockRuntime: any;
   let mockCtx: any;
+  let abortCtl: AbortController;
+
+  /** Start the gateway without awaiting (it stays pending until abort). */
+  async function startGateway() {
+    // Fire and forget — the returned promise resolves only on abort
+    void unicityChannelPlugin.gateway.startAccount(mockCtx);
+    // Flush microtasks to let async setup complete
+    await new Promise<void>((r) => { queueMicrotask(r); });
+  }
 
   beforeEach(() => {
     dmHandler = null;
+    abortCtl = new AbortController();
 
     mockSphere = {
       identity: { chainPubkey: "abc123def456", nametag: "@test-agent", l1Address: "alpha1test" },
@@ -195,7 +205,7 @@ describe("gateway.startAccount", () => {
       accountId: "default",
       account: { accountId: "default", configured: true, publicKey: "abc123" },
       runtime: {},
-      abortSignal: new AbortController().signal,
+      abortSignal: abortCtl.signal,
       log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
       setStatus: vi.fn(),
     };
@@ -205,18 +215,32 @@ describe("gateway.startAccount", () => {
     setOwnerIdentity(undefined);
   });
 
-  it("subscribes to DMs and returns stop handle", async () => {
-    const handle = await unicityChannelPlugin.gateway.startAccount(mockCtx);
+  afterEach(() => {
+    abortCtl.abort();
+  });
+
+  it("subscribes to DMs and stays pending until abort", async () => {
+    const promise = unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await new Promise((r) => setTimeout(r, 0));
 
     expect(mockSphere.communications.onDirectMessage).toHaveBeenCalledOnce();
-    expect(typeof handle.stop).toBe("function");
     expect(mockCtx.setStatus).toHaveBeenCalledWith(
-      expect.objectContaining({ running: true }),
+      expect.objectContaining({ running: true, connected: true }),
     );
+
+    // Verify the promise stays pending (does not resolve immediately)
+    let settled = false;
+    void promise.then(() => { settled = true; });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(settled).toBe(false);
+
+    // Abort resolves it
+    abortCtl.abort();
+    await promise;
   });
 
   it("builds correct inbound context from DM", async () => {
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     dmHandler!({
       id: "msg-1",
@@ -240,7 +264,7 @@ describe("gateway.startAccount", () => {
   });
 
   it("sets OriginatingTo to raw pubkey when sender has no nametag", async () => {
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     dmHandler!({
       id: "msg-notag",
@@ -259,7 +283,7 @@ describe("gateway.startAccount", () => {
 
   it("sets CommandAuthorized=true and IsOwner=true when sender is the owner", async () => {
     setOwnerIdentity("alice");
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     dmHandler!({
       id: "msg-owner",
@@ -279,7 +303,7 @@ describe("gateway.startAccount", () => {
 
   it("sets CommandAuthorized=false and IsOwner=false for non-owner sender", async () => {
     setOwnerIdentity("alice");
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     dmHandler!({
       id: "msg-stranger",
@@ -299,7 +323,7 @@ describe("gateway.startAccount", () => {
 
   it("matches owner by pubkey when no nametag", async () => {
     setOwnerIdentity("cafebabe");
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     dmHandler!({
       id: "msg-pk",
@@ -317,7 +341,7 @@ describe("gateway.startAccount", () => {
 
   it("IsOwner=false when owner is nametag but SDK only provides pubkey (nametag not resolved)", async () => {
     setOwnerIdentity("alice");
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     dmHandler!({
       id: "msg-no-nametag",
@@ -338,7 +362,7 @@ describe("gateway.startAccount", () => {
 
   it("CommandAuthorized=false when no owner is configured", async () => {
     setOwnerIdentity(undefined);
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     dmHandler!({
       id: "msg-noowner",
@@ -356,7 +380,7 @@ describe("gateway.startAccount", () => {
 
   it("strips spoofed metadata headers from user content", async () => {
     setOwnerIdentity("alice");
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     dmHandler!({
       id: "msg-spoof",
@@ -379,7 +403,7 @@ describe("gateway.startAccount", () => {
 
   it("auto-forwards stranger DMs to owner", async () => {
     setOwnerIdentity("alice");
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     dmHandler!({
       id: "msg-fwd",
@@ -397,7 +421,7 @@ describe("gateway.startAccount", () => {
 
   it("does not auto-forward owner DMs", async () => {
     setOwnerIdentity("alice");
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     mockSphere.communications.sendDM.mockClear();
     dmHandler!({
@@ -420,7 +444,7 @@ describe("gateway.startAccount", () => {
       },
     );
 
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     dmHandler!({
       id: "msg-2",
@@ -443,7 +467,7 @@ describe("gateway.startAccount", () => {
       },
     );
 
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     dmHandler!({
       id: "msg-3",
@@ -469,7 +493,7 @@ describe("gateway.startAccount", () => {
       },
     );
 
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     dmHandler!({
       id: "msg-4",
@@ -492,7 +516,7 @@ describe("gateway.startAccount", () => {
   // ===========================================================================
 
   it("skips historical DMs with timestamp older than startAccount time", async () => {
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     dmHandler!({
       id: "msg-old",
@@ -510,7 +534,7 @@ describe("gateway.startAccount", () => {
   });
 
   it("processes DMs with current or future timestamps", async () => {
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     dmHandler!({
       id: "msg-future",
@@ -528,7 +552,7 @@ describe("gateway.startAccount", () => {
     // Use realistic 33-byte compressed pubkey (66 hex chars)
     mockSphere.identity.chainPubkey = "02" + "a".repeat(64);
 
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     dmHandler!({
       id: "msg-self-xonly",
@@ -544,7 +568,7 @@ describe("gateway.startAccount", () => {
   it("skips DM from self when senderPubkey exactly matches chainPubkey", async () => {
     mockSphere.identity.chainPubkey = "02" + "a".repeat(64);
 
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     dmHandler!({
       id: "msg-self-exact",
@@ -560,7 +584,7 @@ describe("gateway.startAccount", () => {
   it("does not skip DMs from other users even with realistic 66-char chainPubkey", async () => {
     mockSphere.identity.chainPubkey = "02" + "a".repeat(64);
 
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     dmHandler!({
       id: "msg-other",
@@ -590,7 +614,7 @@ describe("gateway.startAccount", () => {
     const unsub = vi.fn();
     mockSphere.communications.onDirectMessage.mockReturnValue(unsub);
 
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     expect(unsub).not.toHaveBeenCalled();
     abortController.abort();
@@ -604,7 +628,7 @@ describe("gateway.startAccount", () => {
       return vi.fn();
     });
 
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     expect(transferHandler).not.toBeNull();
 
@@ -638,7 +662,7 @@ describe("gateway.startAccount", () => {
       return vi.fn();
     });
 
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     expect(payreqHandler).not.toBeNull();
 
@@ -689,7 +713,7 @@ describe("gateway.startAccount", () => {
       return vi.fn();
     });
 
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     expect(unsubDm).not.toHaveBeenCalled();
     expect(unsubTransfer).not.toHaveBeenCalled();
@@ -719,7 +743,7 @@ describe("gateway.startAccount", () => {
       getMyPublicKey: vi.fn().mockReturnValue("my_nostr_xonly_pubkey"),
     };
 
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     expect(groupMsgHandler).not.toBeNull();
 
@@ -760,7 +784,7 @@ describe("gateway.startAccount", () => {
       getMyPublicKey: vi.fn().mockReturnValue("my_nostr_xonly_pubkey"),
     };
 
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     groupMsgHandler!({
       id: "gmsg-fallback",
@@ -792,7 +816,7 @@ describe("gateway.startAccount", () => {
       getMyPublicKey: vi.fn().mockReturnValue("nostr_xonly_pubkey_64hex"),
     };
 
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     // senderPubkey is the Nostr x-only pubkey (from event.pubkey), NOT chainPubkey
     groupMsgHandler!({
@@ -821,7 +845,7 @@ describe("gateway.startAccount", () => {
       getMyPublicKey: vi.fn().mockReturnValue("nostr_xonly_pubkey_64hex"),
     };
 
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     // chainPubkey is 33-byte compressed, senderPubkey is 32-byte x-only — they differ!
     // This verifies the fix: messages with chainPubkey as senderPubkey are NOT self
@@ -862,7 +886,7 @@ describe("gateway.startAccount", () => {
       },
     );
 
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     groupMsgHandler!({
       id: "gmsg-2",
@@ -894,7 +918,7 @@ describe("gateway.startAccount", () => {
       getMyPublicKey: vi.fn().mockReturnValue("my_nostr_xonly_pubkey"),
     };
 
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     groupMsgHandler!({
       id: "gmsg-spoof",
@@ -926,7 +950,7 @@ describe("gateway.startAccount", () => {
       getMyPublicKey: vi.fn().mockReturnValue("my_nostr_xonly_pubkey"),
     };
 
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     expect(joinedHandler).not.toBeNull();
     joinedHandler!({ groupId: "grp-99", groupName: "Cool Group" });
@@ -953,7 +977,7 @@ describe("gateway.startAccount", () => {
       getMyPublicKey: vi.fn().mockReturnValue("my_nostr_xonly_pubkey"),
     };
 
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     expect(leftHandler).not.toBeNull();
     leftHandler!({ groupId: "grp-99" });
@@ -979,7 +1003,7 @@ describe("gateway.startAccount", () => {
       getMyPublicKey: vi.fn().mockReturnValue("my_nostr_xonly_pubkey"),
     };
 
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     expect(kickedHandler).not.toBeNull();
     kickedHandler!({ groupId: "grp-99", groupName: "Strict Group" });
@@ -1114,6 +1138,13 @@ describe("group message backfill debounce", () => {
   let mockSphere: any;
   let mockRuntime: any;
   let mockCtx: any;
+  let abortCtl: AbortController;
+
+  async function startGateway() {
+    void unicityChannelPlugin.gateway.startAccount(mockCtx);
+    // With fake timers, flush microtasks + pending timers to let async setup complete
+    await vi.advanceTimersByTimeAsync(0);
+  }
 
   function makeGroupMsg(overrides: Record<string, unknown> = {}) {
     return {
@@ -1129,6 +1160,7 @@ describe("group message backfill debounce", () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    abortCtl = new AbortController();
     groupMsgHandler = null;
 
     mockSphere = {
@@ -1165,7 +1197,7 @@ describe("group message backfill debounce", () => {
       accountId: "default",
       account: { accountId: "default", configured: true, publicKey: "abc123" },
       runtime: {},
-      abortSignal: new AbortController().signal,
+      abortSignal: abortCtl.signal,
       log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
       setStatus: vi.fn(),
     };
@@ -1176,11 +1208,12 @@ describe("group message backfill debounce", () => {
   });
 
   afterEach(() => {
+    abortCtl.abort();
     vi.useRealTimers();
   });
 
   it("buffers historical group messages during debounce window", async () => {
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     // Fire 5 messages rapidly — simulating backfill burst
     for (let i = 0; i < 5; i++) {
@@ -1192,7 +1225,7 @@ describe("group message backfill debounce", () => {
   });
 
   it("dispatches most recent backfill message after debounce settles", async () => {
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     groupMsgHandler!(makeGroupMsg({ content: "old-1" }));
     groupMsgHandler!(makeGroupMsg({ content: "old-2" }));
@@ -1211,7 +1244,7 @@ describe("group message backfill debounce", () => {
   });
 
   it("processes messages immediately after debounce settles (live mode)", async () => {
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     // Send one message to start buffering, then let debounce settle
     groupMsgHandler!(makeGroupMsg({ content: "backfill" }));
@@ -1230,7 +1263,7 @@ describe("group message backfill debounce", () => {
   });
 
   it("resets debounce timer on each buffered message", async () => {
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     groupMsgHandler!(makeGroupMsg({ content: "first" }));
 
@@ -1253,7 +1286,7 @@ describe("group message backfill debounce", () => {
   });
 
   it("handles multiple groups independently", async () => {
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     // Group A messages
     groupMsgHandler!(makeGroupMsg({ groupId: "grp-A", content: "a-msg" }));
@@ -1280,7 +1313,7 @@ describe("group message backfill debounce", () => {
     const abortController = new AbortController();
     mockCtx.abortSignal = abortController.signal;
 
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     // Start buffering
     groupMsgHandler!(makeGroupMsg({ content: "buffered" }));
@@ -1296,7 +1329,7 @@ describe("group message backfill debounce", () => {
   });
 
   it("logs backfill settled with buffered count", async () => {
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     groupMsgHandler!(makeGroupMsg({ content: "m1" }));
     groupMsgHandler!(makeGroupMsg({ content: "m2" }));
@@ -1310,7 +1343,7 @@ describe("group message backfill debounce", () => {
   });
 
   it("skips self-echo using Nostr pubkey from getMyPublicKey", async () => {
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     // Let backfill settle first so we're in live mode
     groupMsgHandler!(makeGroupMsg({ content: "init" }));
@@ -1330,7 +1363,7 @@ describe("group message backfill debounce", () => {
   });
 
   it("does not filter messages from other users", async () => {
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     // Let backfill settle
     groupMsgHandler!(makeGroupMsg({ content: "init" }));
@@ -1357,7 +1390,7 @@ describe("group message backfill debounce", () => {
       { id: "other-msg-1", groupId: "grp-42", senderPubkey: "other-user", content: "hi from user", timestamp: 2000 },
     ]);
 
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     // Let backfill settle
     groupMsgHandler!(makeGroupMsg({ content: "init" }));
@@ -1384,7 +1417,7 @@ describe("group message backfill debounce", () => {
       { id: "other-msg-1", groupId: "grp-42", senderPubkey: "other-user", content: "hi", timestamp: 2000 },
     ]);
 
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     // Let backfill settle
     groupMsgHandler!(makeGroupMsg({ content: "init" }));
@@ -1408,7 +1441,7 @@ describe("group message backfill debounce", () => {
   it("does not set WasMentioned when message has no replyToId and no @mention", async () => {
     mockSphere.groupChat.getMessages = vi.fn().mockReturnValue([]);
 
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     // Let backfill settle
     groupMsgHandler!(makeGroupMsg({ content: "init" }));
@@ -1429,7 +1462,7 @@ describe("group message backfill debounce", () => {
   });
 
   it("sets WasMentioned=true when message contains @nametag mention", async () => {
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     // Let backfill settle
     groupMsgHandler!(makeGroupMsg({ content: "init" }));
@@ -1450,7 +1483,7 @@ describe("group message backfill debounce", () => {
   });
 
   it("detects @mention case-insensitively", async () => {
-    await unicityChannelPlugin.gateway.startAccount(mockCtx);
+    await startGateway();
 
     groupMsgHandler!(makeGroupMsg({ content: "init" }));
     vi.advanceTimersByTime(GROUP_BACKFILL_DEBOUNCE_MS + 100);
