@@ -103,6 +103,8 @@ let activeSphere: Sphere | null = null;
 let pluginRuntime: PluginRuntime | null = null;
 let ownerIdentity: string | null = null;
 let pluginConfig: UnicityConfig = {};
+/** Cleanup function from the previous gateway start — called before re-subscribing. */
+let previousGatewayCleanup: (() => void) | null = null;
 
 export function setUnicityRuntime(rt: PluginRuntime): void {
   pluginRuntime = rt;
@@ -223,6 +225,14 @@ export const unicityChannelPlugin = {
       log?: { info: (m: string) => void; warn: (m: string) => void; error: (m: string) => void; debug: (m: string) => void };
       setStatus: (s: Record<string, unknown>) => void;
     }) => {
+      // Clean up handlers from any previous gateway start (auto-restart scenario).
+      // Without this, each restart stacks duplicate onDirectMessage handlers on the
+      // shared Sphere singleton, causing messages to be processed N times.
+      if (previousGatewayCleanup) {
+        previousGatewayCleanup();
+        previousGatewayCleanup = null;
+      }
+
       const sphere = activeSphere ?? await waitForSphere();
       if (!sphere) throw new Error("Unicity Sphere not initialized — run `openclaw unicity init`");
 
@@ -692,7 +702,7 @@ export const unicityChannelPlugin = {
         groupBackfillStates.clear();
       }
 
-      ctx.abortSignal.addEventListener("abort", () => {
+      function cleanupSubscriptions(): void {
         clearBackfillTimers();
         unsub();
         unsubTransfer();
@@ -701,18 +711,20 @@ export const unicityChannelPlugin = {
         unsubGroupJoined();
         unsubGroupLeft();
         unsubGroupKicked();
+      }
+
+      // Store cleanup so auto-restart can tear down stale handlers
+      previousGatewayCleanup = cleanupSubscriptions;
+
+      ctx.abortSignal.addEventListener("abort", () => {
+        cleanupSubscriptions();
+        previousGatewayCleanup = null;
       }, { once: true });
 
       return {
         stop: () => {
-          clearBackfillTimers();
-          unsub();
-          unsubTransfer();
-          unsubPaymentRequest();
-          unsubGroupMessage();
-          unsubGroupJoined();
-          unsubGroupLeft();
-          unsubGroupKicked();
+          cleanupSubscriptions();
+          previousGatewayCleanup = null;
           ctx.log?.info(`[${ctx.account.accountId}] Unicity channel stopped`);
         },
       };
