@@ -1,12 +1,12 @@
 name: Publish
 
-run-name: Publish ${{ inputs.version && format('v{0}', inputs.version) || 'patch' }}
+run-name: Publish ${{ inputs.version && format('v{0}', inputs.version) || 'next' }}
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to publish (e.g. 0.2.0). Leave empty to auto-increment patch."
+        description: "Version to publish (e.g. 0.5.5, 0.6.0-dev.1). Leave empty to auto-increment."
         required: false
         type: string
 
@@ -31,14 +31,29 @@ jobs:
         id: version
         run: |
           if [ -n "${{ inputs.version }}" ]; then
-            echo "value=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            VERSION="${{ inputs.version }}"
           else
             CURRENT=$(node -p "require('./package.json').version")
-            # Increment patch: 0.1.9 -> 0.1.10, 0.2.0 -> 0.2.1
-            NEXT=$(echo "$CURRENT" | awk -F. '{printf "%d.%d.%d", $1, $2, $3+1}')
-            echo "value=$NEXT" >> "$GITHUB_OUTPUT"
+            # Auto-increment: 0.5.4 -> 0.5.5, 0.6.0-dev.1 -> 0.6.0-dev.2
+            if echo "$CURRENT" | grep -qE '\-'; then
+              # Pre-release: increment the last numeric segment after the hyphen
+              PREFIX=$(echo "$CURRENT" | sed 's/\.[0-9]*$//')
+              LAST=$(echo "$CURRENT" | grep -oE '[0-9]+$')
+              VERSION="${PREFIX}.$((LAST + 1))"
+            else
+              # Stable: increment patch
+              VERSION=$(echo "$CURRENT" | awk -F. '{printf "%d.%d.%d", $1, $2, $3+1}')
+            fi
           fi
-          echo "Publishing version: $(cat "$GITHUB_OUTPUT" | grep value | cut -d= -f2)"
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Publishing version: $VERSION"
+
+      - name: Validate version format
+        run: |
+          if ! echo "${{ steps.version.outputs.value }}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
+            echo "Error: Invalid version format: ${{ steps.version.outputs.value }}"
+            exit 1
+          fi
 
       - name: Set version in package.json
         run: npm version "${{ steps.version.outputs.value }}" --no-git-tag-version
@@ -49,11 +64,20 @@ jobs:
 
       - run: npm test
 
+      - name: Determine npm dist-tag
+        id: dist-tag
+        run: |
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=dev" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Pack tarball
         run: npm pack
 
       - name: Publish to npm (trusted publisher via OIDC)
-        run: npm publish --access public --provenance
+        run: npm publish --access public --provenance --tag ${{ steps.dist-tag.outputs.tag }}
 
       - name: Commit version bump and tag
         run: |
@@ -62,13 +86,18 @@ jobs:
           git add package.json
           git commit -m "v${{ steps.version.outputs.value }}"
           git tag "v${{ steps.version.outputs.value }}"
-          git push origin HEAD:main --tags
+          git push origin HEAD --tags
 
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          PRERELEASE=""
+          if echo "${{ steps.version.outputs.value }}" | grep -qE '\-'; then
+            PRERELEASE="--prerelease"
+          fi
           gh release create "v${{ steps.version.outputs.value }}" \
             --title "v${{ steps.version.outputs.value }}" \
             --notes "Published to npm: https://www.npmjs.com/package/@unicitylabs/openclaw-unicity/v/${{ steps.version.outputs.value }}" \
+            $PRERELEASE \
             unicitylabs-openclaw-unicity-${{ steps.version.outputs.value }}.tgz
