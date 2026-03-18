@@ -243,6 +243,7 @@ export const unicityChannelPlugin = {
         publicKey: sphere.identity?.chainPubkey,
         nametag: sphere.identity?.nametag,
         running: true,
+        connected: true,
         lastStartAt: Date.now(),
       });
 
@@ -287,6 +288,7 @@ export const unicityChannelPlugin = {
 
       function dispatchDm(msg: DmMsg): void {
         sendersInFlight.add(msg.senderPubkey);
+        ctx.setStatus({ lastEventAt: Date.now() });
 
         // Immediately signal that we're composing a reply
         sphere.communications.sendComposingIndicator(msg.senderPubkey)
@@ -412,6 +414,7 @@ export const unicityChannelPlugin = {
 
       // Subscribe to incoming token transfers
       const unsubTransfer = sphere.on("transfer:incoming", (transfer) => {
+        ctx.setStatus({ lastEventAt: Date.now() });
         // Full address for DM replies; short form for display/logging only
         const replyTo = transfer.senderNametag ? `@${transfer.senderNametag}` : transfer.senderPubkey;
         const displayName = transfer.senderNametag ? `@${transfer.senderNametag}` : transfer.senderPubkey.slice(0, 12) + "…";
@@ -474,6 +477,7 @@ export const unicityChannelPlugin = {
 
       // Subscribe to incoming payment requests
       const unsubPaymentRequest = sphere.on("payment_request:incoming", (request) => {
+        ctx.setStatus({ lastEventAt: Date.now() });
         const replyTo = request.senderNametag ? `@${request.senderNametag}` : request.senderPubkey;
         const displayName = request.senderNametag ? `@${request.senderNametag}` : request.senderPubkey.slice(0, 12) + "…";
         const decimals = getCoinDecimals(request.coinId) ?? 0;
@@ -628,6 +632,7 @@ export const unicityChannelPlugin = {
 
       // Subscribe to incoming group messages
       const unsubGroupMessage = sphere.groupChat?.onMessage?.((msg: GroupMsg) => {
+        ctx.setStatus({ lastEventAt: Date.now() });
         // Skip messages from self (echoed back by the relay).
         // Compare against the Nostr x-only pubkey, not chainPubkey.
         if (myNostrPubkey && msg.senderPubkey === myNostrPubkey) return;
@@ -725,6 +730,7 @@ export const unicityChannelPlugin = {
         stop: () => {
           cleanupSubscriptions();
           previousGatewayCleanup = null;
+          ctx.setStatus({ connected: false, running: false });
           ctx.log?.info(`[${ctx.account.accountId}] Unicity channel stopped`);
         },
       };
