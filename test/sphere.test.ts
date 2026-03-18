@@ -30,7 +30,7 @@ const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
 // Dynamic import so mocks are in place
-const { initSphere, getSphere, getSphereOrNull, destroySphere, waitForSphere, MNEMONIC_PATH } =
+const { initSphere, getSphere, getSphereOrNull, destroySphere, waitForSphere, MNEMONIC_PATH, DM_LOOKBACK_SECONDS } =
   await import("../src/sphere.js");
 
 describe("sphere", () => {
@@ -104,6 +104,26 @@ describe("sphere", () => {
 
     expect(result.created).toBe(true);
     expect(getSphereOrNull()).toBe(fakeSphere);
+  });
+
+  it("passes dmSince (seconds) to Sphere.init with 24h lookback", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-15T12:00:00Z"));
+    const nowSec = Math.floor(Date.now() / 1000);
+
+    mockSphereInit.mockResolvedValue({
+      sphere: fakeSphere,
+      created: false,
+    });
+
+    await initSphere({ network: "testnet" });
+
+    expect(mockSphereInit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dmSince: nowSec - DM_LOOKBACK_SECONDS,
+      }),
+    );
+    vi.useRealTimers();
   });
 
   it("saves mnemonic to file with 0o600 permissions on creation", async () => {
