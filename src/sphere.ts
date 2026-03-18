@@ -14,6 +14,9 @@ export { DATA_DIR, MNEMONIC_PATH, walletExists };
 /** Default testnet API key (from Sphere app) */
 const DEFAULT_API_KEY = "sk_06365a9c44654841a366068bcfc68986";
 
+/** How far back to fetch DMs on first connect (seconds). */
+export const DM_LOOKBACK_SECONDS = 86_400;
+
 let sphereInstance: Sphere | null = null;
 let initPromise: Promise<InitSphereResult> | null = null;
 
@@ -116,7 +119,7 @@ async function doInitSphere(
     ...(existingMnemonic ? { mnemonic: existingMnemonic } : { autoGenerate: true }),
     ...(cfg.nametag ? { nametag: cfg.nametag } : {}),
     ...(groupChat ? { groupChat: groupChatRelays ? { relays: groupChatRelays } : true } : {}),
-    dmSince: Math.floor(Date.now() / 1000) - 86400,
+    dmSince: Math.floor(Date.now() / 1000) - DM_LOOKBACK_SECONDS,
   });
 
   sphereInstance = result.sphere;
