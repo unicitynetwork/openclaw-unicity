@@ -1,49 +1,38 @@
-/** Unicity channel plugin — Sphere SDK DMs over private Nostr relays. */
+/** Unicity channel plugin: encrypted DMs, NIP-29 groups and wallet events via the Sphere SDK. */
 
 import type { Sphere } from "@unicitylabs/sphere-sdk";
-import type { PluginRuntime, ChannelOnboardingAdapter } from "openclaw/plugin-sdk";
-import { waitForSphere, walletExists } from "./sphere.js";
-import { runInteractiveSetup } from "./setup.js";
-import { getCoinDecimals, toHumanReadable } from "./assets.js";
-import { VALID_RECIPIENT } from "./validation.js";
-import type { UnicityConfig } from "./config.js";
+import type { ChannelDoctorAdapter } from "openclaw/plugin-sdk/channel-contract";
+import type { ChannelPlugin, OpenClawConfig } from "openclaw/plugin-sdk/channel-core";
+import { attachChannelToResult } from "openclaw/plugin-sdk/channel-send-result";
+import { PlatformMessageNotDispatchedError } from "openclaw/plugin-sdk/error-runtime";
+import type { ChannelSetupWizardAdapter } from "openclaw/plugin-sdk/setup";
+import { chunkTextForOutbound } from "openclaw/plugin-sdk/text-chunking";
+import { classifyAllowEntry, effectiveDmPolicy, formatAllowEntry, normalizeAllowEntry, stripChannelPrefix } from "./access.js";
+import {
+  API_KEY_URL, CHANNEL_ID, PLUGIN_ID, isDmPolicy, optionalString, readPluginConfig, stringList, type DmPolicy,
+} from "./config.js";
+import { claimedNameSuffix, shortKey, toXOnly } from "./identity.js";
+import { resolveUnicityDmScope, startUnicityAccount } from "./inbound.js";
+import { applySetupAnswers, collectSetupAnswers } from "./setup.js";
+import { getSphereOrNull, waitForSphere } from "./sphere.js";
+import { walletExists } from "./storage.js";
+import { VALID_RECIPIENT, looksLikeTarget, normalizeNametag } from "./validation.js";
 
 const DEFAULT_ACCOUNT_ID = "default";
+const CHANNEL_CONFIG_PREFIX = `channels.${CHANNEL_ID}.`;
+const PLUGIN_CONFIG_PREFIX = `plugins.entries.${PLUGIN_ID}.config.`;
+/** Outbound sends may arrive while the wallet is still opening at gateway start. */
+const OUTBOUND_WALLET_WAIT_MS = 30_000;
 
-/** How long (ms) to wait after the last group message before declaring backfill complete. */
-export const GROUP_BACKFILL_DEBOUNCE_MS = 3_000;
-
-
-interface GroupBackfillState {
-  phase: "buffering" | "live";
-  latestMsg: {
-    id?: string;
-    groupId: string;
-    senderPubkey: string;
-    senderNametag?: string;
-    content: string;
-    timestamp: number;
-    replyToId?: string;
-  } | null;
-  bufferedCount: number;
-  timer: ReturnType<typeof setTimeout> | null;
-}
-
-// ---------------------------------------------------------------------------
-// Account config shape (read from openclaw config under channels.unicity)
-// ---------------------------------------------------------------------------
-
-export interface UnicityAccountConfig {
+/** Account view of `channels.unicity`; dmPolicy/allowFrom fall back to the plugin config. */
+export type UnicityAccountConfig = {
   enabled?: boolean;
   name?: string;
-  nametag?: string;
-  network?: string;
-  additionalRelays?: string[];
-  dmPolicy?: "pairing" | "allowlist" | "open" | "disabled";
+  dmPolicy?: DmPolicy;
   allowFrom?: string[];
-}
+};
 
-export interface ResolvedUnicityAccount {
+export type ResolvedUnicityAccount = {
   accountId: string;
   name?: string;
   enabled: boolean;
@@ -51,691 +40,185 @@ export interface ResolvedUnicityAccount {
   publicKey: string;
   nametag?: string;
   config: UnicityAccountConfig;
+};
+
+function channelSection(cfg: OpenClawConfig): Record<string, unknown> | undefined {
+  const section = (cfg as { channels?: Record<string, unknown> } | undefined)?.channels?.[CHANNEL_ID];
+  return section && typeof section === "object" && !Array.isArray(section) ? (section as Record<string, unknown>) : undefined;
 }
 
-// ---------------------------------------------------------------------------
-// Config helpers
-// ---------------------------------------------------------------------------
-
-function readChannelConfig(cfg: Record<string, unknown>): UnicityAccountConfig {
-  const channels = cfg.channels as Record<string, unknown> | undefined;
-  const channelCfg = channels?.unicity as UnicityAccountConfig | undefined;
-  // Merge: channel config wins, plugin config is fallback for dmPolicy/allowFrom
+/** Resolves the single "default" account. `configured` reflects the wallet on disk (or an open wallet), never config alone. */
+export function resolveUnicityAccount(cfg: OpenClawConfig, accountId?: string | null): ResolvedUnicityAccount {
+  const section = channelSection(cfg);
+  const plugin = readPluginConfig(cfg);
+  const sectionPolicy = section?.dmPolicy;
+  const dmPolicy = (isDmPolicy(sectionPolicy) ? sectionPolicy : undefined) ?? plugin.dmPolicy;
+  const allowFrom = stringList(section?.allowFrom) ?? plugin.allowFrom;
+  const name = optionalString(section?.name);
+  const sphere = getSphereOrNull();
   return {
-    ...channelCfg,
-    dmPolicy: channelCfg?.dmPolicy ?? pluginConfig.dmPolicy,
-    allowFrom: channelCfg?.allowFrom ?? pluginConfig.allowFrom,
-  };
-}
-
-export function listUnicityAccountIds(_cfg: Record<string, unknown>): string[] {
-  // We have an account once sphere has been initialized (pubkey present at runtime).
-  // Config-time: we always report a default account so the gateway tries to start it.
-  return [DEFAULT_ACCOUNT_ID];
-}
-
-export function resolveUnicityAccount(opts: {
-  cfg: Record<string, unknown>;
-  accountId?: string | null;
-  sphere?: Sphere | null;
-}): ResolvedUnicityAccount {
-  const accountId = opts.accountId ?? DEFAULT_ACCOUNT_ID;
-  const ucfg = readChannelConfig(opts.cfg);
-  const enabled = ucfg.enabled !== false;
-  const sphere = opts.sphere ?? null;
-
-  return {
-    accountId,
-    name: ucfg?.name?.trim() || undefined,
-    enabled,
-    configured: sphere?.identity?.chainPubkey != null,
+    accountId: accountId ?? DEFAULT_ACCOUNT_ID,
+    name,
+    enabled: section?.enabled !== false,
+    configured: sphere !== null || walletExists(),
     publicKey: sphere?.identity?.chainPubkey ?? "",
-    nametag: sphere?.identity?.nametag ?? ucfg?.nametag,
-    config: ucfg,
+    nametag: sphere?.identity?.nametag ?? plugin.nametag,
+    config: {
+      ...(typeof section?.enabled === "boolean" ? { enabled: section.enabled } : {}),
+      ...(name ? { name } : {}),
+      ...(dmPolicy ? { dmPolicy } : {}),
+      ...(allowFrom ? { allowFrom } : {}),
+    },
   };
 }
 
-// ---------------------------------------------------------------------------
-// Channel plugin (full ChannelPlugin shape)
-// ---------------------------------------------------------------------------
-
-let activeSphere: Sphere | null = null;
-let pluginRuntime: PluginRuntime | null = null;
-let ownerIdentity: string | null = null;
-let pluginConfig: UnicityConfig = {};
-/** Cleanup function from the previous gateway start — called before re-subscribing. */
-let previousGatewayCleanup: (() => void) | null = null;
-
-export function setUnicityRuntime(rt: PluginRuntime): void {
-  pluginRuntime = rt;
-}
-export function setOwnerIdentity(owner: string | undefined): void {
-  ownerIdentity = owner ?? null;
-}
-export function setPluginConfig(cfg: UnicityConfig): void {
-  pluginConfig = cfg;
-}
-export function getOwnerIdentity(): string | null {
-  return ownerIdentity;
-}
-export function getUnicityRuntime(): PluginRuntime {
-  if (!pluginRuntime) throw new Error("Unicity runtime not initialized");
-  return pluginRuntime;
-}
-export function setActiveSphere(s: Sphere | null): void {
-  activeSphere = s;
-}
-export function getActiveSphere(): Sphere | null {
-  return activeSphere;
-}
-
-function isKnownGroupId(sphere: Sphere, target: string): boolean {
+function knownGroupId(sphere: Sphere, target: string): string | null {
   try {
-    const groups = sphere.groupChat?.getGroups?.() ?? [];
-    return groups.some((g: { id: string }) => g.id === target);
+    return sphere.groupChat?.getGroups().some((g) => g.id === target) ? target : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
-function isSenderOwner(senderPubkey: string, senderNametag?: string): boolean {
-  if (!ownerIdentity) return false;
-  const normalized = ownerIdentity.replace(/^@/, "").toLowerCase();
-  if (senderPubkey.toLowerCase() === normalized) return true;
-  if (senderNametag) {
-    const tag = senderNametag.replace(/^@/, "").toLowerCase();
-    if (tag === normalized) return true;
+/** Canonical outbound target: x-only key for hex, "@name" for nametags, unchanged otherwise (group ids, DIRECT://). */
+export function normalizeUnicityTarget(raw: string): string | undefined {
+  const target = stripChannelPrefix(raw);
+  if (!target) return undefined;
+  const key = toXOnly(target);
+  if (key) return key;
+  if (target.startsWith("@")) {
+    const tag = normalizeNametag(target);
+    return tag ? `@${tag}` : target;
   }
-  return false;
+  return target;
 }
+
+/**
+ * Recipient forms that can never be a group id (after normalizeUnicityTarget): @nametag, x-only key, DIRECT:// address.
+ * A bare name is resolved by the transport as a nametag, so it is never a DM fallback.
+ */
+function isDmRecipient(to: string): boolean {
+  return VALID_RECIPIENT.test(to) && (to.startsWith("@") || to.startsWith("DIRECT://") || /^[0-9a-f]{64}$/.test(to));
+}
+
+function isInvalidRecipient(err: unknown): boolean {
+  return (err as { code?: unknown } | null)?.code === "INVALID_RECIPIENT";
+}
+
+/**
+ * "open" admits everyone here without a "*" entry, so `openclaw doctor --fix` must not add one. Core reads this
+ * capability from the doctor adapter at runtime although ChannelDoctorAdapter does not declare it.
+ */
+const doctor: ChannelDoctorAdapter & { openDmRequiresAllowFromWildcard: false } = { openDmRequiresAllowFromWildcard: false };
+
+const setupWizard = {
+  channel: CHANNEL_ID,
+  // Runs in setup-only mode: pure config transforms, no runtime and no wallet.
+  getStatus: async ({ cfg }) => {
+    const { nametag, apiKey } = readPluginConfig(cfg);
+    const wallet = walletExists();
+    return {
+      channel: CHANNEL_ID,
+      configured: Boolean(nametag) || wallet,
+      statusLines: [
+        nametag ? `Nametag: @${nametag}` : "Nametag: not configured",
+        wallet ? "Wallet: present" : "Wallet: created on the first gateway start",
+        apiKey ? "Payments: API key set" : `Payments: disabled (no API key; get one at ${API_KEY_URL})`,
+      ],
+      quickstartScore: 80,
+    };
+  },
+  configure: async ({ cfg, prompter }) => {
+    const answers = await collectSetupAnswers(prompter, readPluginConfig(cfg));
+    return { cfg: applySetupAnswers(cfg, answers), accountId: DEFAULT_ACCOUNT_ID };
+  },
+} satisfies ChannelSetupWizardAdapter;
 
 export const unicityChannelPlugin = {
-  id: "unicity" as const,
+  id: CHANNEL_ID,
 
   meta: {
-    id: "unicity" as const,
+    id: CHANNEL_ID,
     label: "Unicity",
     selectionLabel: "Unicity (Sphere DMs)",
     docsPath: "/channels/unicity",
     docsLabel: "unicity",
-    blurb: "Private Nostr DMs via Unicity Sphere SDK.",
+    blurb: "Private Nostr DMs, group chat and token payments via the Unicity Sphere SDK.",
     order: 110,
   },
 
   capabilities: {
-    chatTypes: ["direct" as const, "group" as const],
+    chatTypes: ["direct", "group"],
     groupManagement: true,
     media: false,
   },
 
-  reload: { configPrefixes: ["channels.unicity"] },
+  reload: { configPrefixes: [`channels.${CHANNEL_ID}`] },
 
-  // -- config adapter -------------------------------------------------------
   config: {
-    listAccountIds: (cfg: Record<string, unknown>) => listUnicityAccountIds(cfg),
-    resolveAccount: (cfg: Record<string, unknown>, accountId?: string | null) =>
-      resolveUnicityAccount({ cfg, accountId, sphere: activeSphere }),
+    listAccountIds: () => [DEFAULT_ACCOUNT_ID],
+    resolveAccount: (cfg, accountId) => resolveUnicityAccount(cfg, accountId),
     defaultAccountId: () => DEFAULT_ACCOUNT_ID,
-    isConfigured: (_account: ResolvedUnicityAccount) => true,
-    describeAccount: (account: ResolvedUnicityAccount) => ({
+    // The service creates the wallet on first start, after channels start: the account must start and wait for it.
+    isConfigured: () => true,
+    describeAccount: (account) => ({
       accountId: account.accountId,
       name: account.name,
       enabled: account.enabled,
       configured: account.configured,
-      publicKey: account.publicKey || undefined,
-      nametag: account.nametag,
+      publicKey: account.publicKey || null,
     }),
-    resolveAllowFrom: (params: { cfg: Record<string, unknown>; accountId?: string | null }) => {
-      const account = resolveUnicityAccount({ ...params, sphere: activeSphere });
-      return account.config.allowFrom ?? [];
-    },
+    resolveAllowFrom: ({ cfg, accountId }) => (resolveUnicityAccount(cfg, accountId).config.allowFrom ?? []).map(normalizeAllowEntry),
+    formatAllowFrom: ({ allowFrom }) => allowFrom.map((entry) => formatAllowEntry(String(entry))).filter((entry) => entry.length > 0),
   },
 
-  // -- outbound adapter (send replies) --------------------------------------
   outbound: {
-    deliveryMode: "direct" as const,
+    deliveryMode: "direct",
     textChunkLimit: 4000,
-    sendText: async (ctx: {
-      cfg: Record<string, unknown>;
-      to: string;
-      text: string;
-      accountId?: string | null;
-    }) => {
-      const sphere = activeSphere ?? await waitForSphere();
-      if (!sphere) throw new Error("Unicity Sphere not initialized");
-
-      // Check if target is a known group id
-      if (isKnownGroupId(sphere, ctx.to)) {
-        await sphere.groupChat.sendMessage(ctx.to, ctx.text ?? "");
-      } else {
-        await sphere.communications.sendDM(ctx.to, ctx.text ?? "");
+    chunker: chunkTextForOutbound,
+    sendText: async (ctx) => {
+      ctx.signal?.throwIfAborted();
+      const sphere = getSphereOrNull() ?? (await waitForSphere({ signal: ctx.signal, timeoutMs: OUTBOUND_WALLET_WAIT_MS }));
+      if (!sphere) {
+        throw new PlatformMessageNotDispatchedError("Unicity wallet is not open", { cause: new Error("sphere unavailable"), retryable: true });
       }
-      return { channel: "unicity", messageId: "", to: ctx.to };
+      const to = normalizeUnicityTarget(ctx.to) ?? "";
+      const groupId = knownGroupId(sphere, to);
+      // Text meant for an unjoined group must never become a DM to whoever owns that name.
+      if (!groupId && !isDmRecipient(to)) {
+        throw new PlatformMessageNotDispatchedError(
+          `Unknown Unicity target "${ctx.to}": not a joined group. Use @name for a nametag or a 64-hex public key.`,
+          { cause: new Error("invalid target"), retryable: false },
+        );
+      }
+      ctx.signal?.throwIfAborted();
+      await ctx.onPlatformSendDispatch?.();
+      ctx.assertDirectAdapterHandoff?.();
+      if (groupId) {
+        const groupChat = sphere.groupChat;
+        if (!groupChat) {
+          throw new PlatformMessageNotDispatchedError("Unicity group chat is disabled", { cause: new Error("groupChat unavailable"), retryable: false });
+        }
+        const sent = await groupChat.sendMessage(groupId, ctx.text, ctx.replyToId ?? undefined);
+        if (!sent?.id) throw new Error(`Unicity group ${groupId} rejected the message or is not joined`);
+        return attachChannelToResult(CHANNEL_ID, { to: groupId, messageId: sent.id });
+      }
+      try {
+        const sent = await sphere.communications.sendDM(to, ctx.text);
+        return attachChannelToResult(CHANNEL_ID, { to, messageId: sent.id });
+      } catch (err) {
+        if (isInvalidRecipient(err)) {
+          throw new PlatformMessageNotDispatchedError(`Unicity recipient "${ctx.to}" could not be resolved`, { cause: err, retryable: false });
+        }
+        throw err;
+      }
     },
   },
 
-  // -- gateway adapter (inbound listener) -----------------------------------
   gateway: {
-    startAccount: async (ctx: {
-      cfg: Record<string, unknown>;
-      accountId: string;
-      account: ResolvedUnicityAccount;
-      runtime: unknown;
-      abortSignal: AbortSignal;
-      log?: { info: (m: string) => void; warn: (m: string) => void; error: (m: string) => void; debug: (m: string) => void };
-      setStatus: (s: Record<string, unknown>) => void;
-    }) => {
-      // Clean up handlers from any previous gateway start (auto-restart scenario).
-      // Without this, each restart stacks duplicate onDirectMessage handlers on the
-      // shared Sphere singleton, causing messages to be processed N times.
-      if (previousGatewayCleanup) {
-        previousGatewayCleanup();
-        previousGatewayCleanup = null;
-      }
-
-      const sphere = activeSphere ?? await waitForSphere();
-      if (!sphere) throw new Error("Unicity Sphere not initialized — run `openclaw unicity init`");
-
-      const runtime = getUnicityRuntime();
-
-      ctx.setStatus({
-        accountId: ctx.account.accountId,
-        publicKey: sphere.identity?.chainPubkey,
-        nametag: sphere.identity?.nametag,
-        running: true,
-        connected: true,
-        lastStartAt: Date.now(),
-      });
-
-      ctx.log?.info(
-        `[${ctx.account.accountId}] Starting Unicity channel (nametag: ${sphere.identity?.nametag ?? "none"}, pubkey: ${sphere.identity?.chainPubkey?.slice(0, 16)}...)`,
-      );
-
-      ctx.log?.info(`[${ctx.account.accountId}] Subscribing to DMs (pubkey: ${sphere.identity?.chainPubkey?.slice(0, 16)}...)`);
-
-      // Track DM start time and seen IDs to skip historical replays from the relay.
-      // The SDK fires onDirectMessage for every cached/replayed DM on connect.
-      // msg.timestamp is milliseconds, so dmStartTime must be ms too.
-      const dmStartTime = Date.now();
-      const seenDmIds = new Set<string>();
-      const DM_SEEN_MAX = 1000;
-
-      // Collect all known representations of "self" so we can detect echoed-back
-      // messages.  We must track BOTH the 33-byte compressed chainPubkey (02/03…)
-      // and the 32-byte x-only Nostr transport key (chainPubkey without prefix).
-      // The SDK's own self-check in CommunicationsModule has a bug where it
-      // compares transport pubkey (32-byte) against chainPubkey (33-byte), which
-      // never matches — so self-messages can leak through to dmHandlers.
-      const selfPubkeys = new Set<string>();
-      if (sphere.identity?.chainPubkey) {
-        const cpk = sphere.identity.chainPubkey;
-        selfPubkeys.add(cpk);
-        // x-only transport key = compressed pubkey without the 02/03 prefix
-        if (cpk.length === 66 && (cpk.startsWith("02") || cpk.startsWith("03"))) {
-          selfPubkeys.add(cpk.slice(2));
-        }
-      }
-      // Also add the groupChat key (same value but grabbed independently for safety)
-      const myNostrPubkey = sphere.groupChat?.getMyPublicKey?.() ?? null;
-      if (myNostrPubkey) selfPubkeys.add(myNostrPubkey);
-
-      // Per-sender queue: while a reply is being generated for a sender, hold
-      // the latest incoming message so it gets processed after the current reply
-      // finishes.  Prevents duplicate replies while not dropping follow-ups.
-      type DmMsg = { id: string; senderPubkey: string; senderNametag?: string; recipientPubkey: string; content: string; timestamp: number; isRead: boolean };
-      const sendersInFlight = new Set<string>();
-      const pendingPerSender = new Map<string, DmMsg>();
-
-      function dispatchDm(msg: DmMsg): void {
-        sendersInFlight.add(msg.senderPubkey);
-        ctx.setStatus({ lastEventAt: Date.now() });
-
-        // Immediately signal that we're composing a reply
-        sphere.communications.sendComposingIndicator(msg.senderPubkey)
-          .catch((err: unknown) => ctx.log?.error(`[${ctx.account.accountId}] Composing indicator failed: ${err}`));
-
-        // Use @nametag if available, otherwise raw pubkey
-        const peerId = msg.senderNametag ? `@${msg.senderNametag}` : msg.senderPubkey;
-        ctx.log?.info(`[${ctx.account.accountId}] DM received from ${peerId}: ${msg.content.slice(0, 80)}`);
-
-        const isOwner = isSenderOwner(msg.senderPubkey, msg.senderNametag);
-        ctx.log?.debug(`[${ctx.account.accountId}] Owner check: senderPubkey=${msg.senderPubkey.slice(0, 16)}… senderNametag=${msg.senderNametag ?? "undefined"} ownerIdentity=${ownerIdentity ?? "unset"} → isOwner=${isOwner}`);
-
-        // Auto-forward stranger DMs to owner (handled in code, not by the LLM)
-        if (!isOwner && ownerIdentity) {
-          const senderLabel = msg.senderNametag ? `@${msg.senderNametag}` : msg.senderPubkey.slice(0, 16);
-          const forwardBody = `[Forwarded DM from ${senderLabel}]: ${msg.content}`;
-          sphere.communications.sendDM(`@${ownerIdentity}`, forwardBody).catch((err) => {
-            ctx.log?.error(`[${ctx.account.accountId}] Failed to forward DM to owner: ${err}`);
-          });
-        }
-
-        const senderName = msg.senderNametag ?? msg.senderPubkey.slice(0, 12);
-        const metadataHeader = `[SenderName: ${senderName} | SenderId: ${msg.senderPubkey} | IsOwner: ${isOwner} | CommandAuthorized: ${isOwner}]`;
-        // Strip any fake metadata headers from user content to prevent spoofing
-        const sanitizedContent = msg.content.replace(/\[(?:SenderName|SenderId|IsOwner|CommandAuthorized)\s*:/gi, "[BLOCKED:");
-
-        const inboundCtx = runtime.channel.reply.finalizeInboundContext({
-          Body: `${metadataHeader}\n${sanitizedContent}`,
-          From: peerId,
-          To: sphere.identity?.nametag ?? sphere.identity?.chainPubkey ?? "agent",
-          SessionKey: `unicity:dm:${peerId}`,
-          ChatType: "direct",
-          Surface: "unicity",
-          Provider: "unicity",
-          OriginatingChannel: "unicity",
-          OriginatingTo: peerId,
-          AccountId: ctx.account.accountId,
-          SenderName: senderName,
-          SenderId: msg.senderPubkey,
-          IsOwner: isOwner,
-          CommandAuthorized: isOwner,
-        });
-
-        runtime.channel.reply
-          .dispatchReplyWithBufferedBlockDispatcher({
-            ctx: inboundCtx,
-            cfg: ctx.cfg,
-            dispatcherOptions: {
-              deliver: async (payload: { text?: string }, info: { kind: string }) => {
-                ctx.log?.info(`[${ctx.account.accountId}] deliver called: kind=${info.kind} textLen=${payload.text?.length ?? 0}`);
-                const text = payload.text;
-                if (!text) return;
-                try {
-                  // Reply using raw Nostr pubkey from the unwrapped seal, NOT the
-                  // nametag.  The nametag resolution on the relay may return a
-                  // different Nostr pubkey (e.g. registered with the SDK's direct
-                  // key derivation) than the one the sender's browser extension
-                  // actually uses (SPHERE_NOSTR_V1 derivation).  Sending to the
-                  // raw pubkey guarantees the reply reaches the correct recipient.
-                  await sphere.communications.sendDM(msg.senderPubkey, text);
-                  ctx.log?.info(`[${ctx.account.accountId}] DM sent to ${peerId}: ${text.slice(0, 80)}`);
-                } catch (err) {
-                  ctx.log?.error(`[${ctx.account.accountId}] Failed to send DM to ${peerId}: ${err}`);
-                }
-              },
-              onSkip: (payload: { text?: string }, info: { kind: string; reason: string }) => {
-                ctx.log?.warn(`[${ctx.account.accountId}] Reply SKIPPED: kind=${info.kind} reason=${info.reason} text="${payload.text?.slice(0, 60) ?? ""}"`);
-              },
-              onError: (err: unknown, info: { kind: string }) => {
-                ctx.log?.error(`[${ctx.account.accountId}] Reply delivery ERROR: kind=${info.kind} err=${err}`);
-              },
-            },
-          })
-          .then((result: unknown) => {
-            ctx.log?.info(`[${ctx.account.accountId}] Dispatch result: ${JSON.stringify(result)}`);
-          })
-          .catch((err: unknown) => {
-            ctx.log?.error(`[${ctx.account.accountId}] Reply dispatch error: ${err}`);
-          })
-          .finally(() => {
-            sendersInFlight.delete(msg.senderPubkey);
-            // If a follow-up message arrived while we were replying, process it now
-            const pending = pendingPerSender.get(msg.senderPubkey);
-            if (pending) {
-              pendingPerSender.delete(msg.senderPubkey);
-              ctx.log?.info(`[${ctx.account.accountId}] Processing queued DM from ${peerId}`);
-              dispatchDm(pending);
-            }
-          });
-      }
-
-      const unsub = sphere.communications.onDirectMessage((msg) => {
-        // Skip messages from self (own DMs echoed back by the relay)
-        if (selfPubkeys.has(msg.senderPubkey)) return;
-
-        // Deduplicate: skip already-processed messages (relays may deliver dupes)
-        if (msg.id && seenDmIds.has(msg.id)) return;
-        if (msg.id) {
-          seenDmIds.add(msg.id);
-          if (seenDmIds.size > DM_SEEN_MAX) {
-            const first = seenDmIds.values().next().value!;
-            seenDmIds.delete(first);
-          }
-        }
-
-        // Skip historical messages replayed on connect
-        if (msg.timestamp && msg.timestamp < dmStartTime) {
-          ctx.log?.debug(`[${ctx.account.accountId}] Skipping historical DM (ts=${msg.timestamp} < start=${dmStartTime})`);
-          return;
-        }
-
-        // Per-sender lock: queue if we're already generating a reply for this sender
-        if (sendersInFlight.has(msg.senderPubkey)) {
-          ctx.log?.debug(`[${ctx.account.accountId}] Queuing DM from ${msg.senderPubkey.slice(0, 16)}… — reply in flight`);
-          pendingPerSender.set(msg.senderPubkey, msg);
-          return;
-        }
-
-        dispatchDm(msg);
-      });
-
-      ctx.log?.info(`[${ctx.account.accountId}] Unicity DM listener active`);
-
-      // Subscribe to incoming token transfers
-      const unsubTransfer = sphere.on("transfer:incoming", (transfer) => {
-        ctx.setStatus({ lastEventAt: Date.now() });
-        // Full address for DM replies; short form for display/logging only
-        const replyTo = transfer.senderNametag ? `@${transfer.senderNametag}` : transfer.senderPubkey;
-        const displayName = transfer.senderNametag ? `@${transfer.senderNametag}` : transfer.senderPubkey.slice(0, 12) + "…";
-        const totalAmount = transfer.tokens.map((t) => {
-          const decimals = getCoinDecimals(t.coinId) ?? 0;
-          const amount = toHumanReadable(t.amount, decimals);
-          return `${amount} ${t.symbol}`;
-        }).join(", ");
-        const memo = transfer.memo ? ` — "${transfer.memo}"` : "";
-        const body = `[Payment received] ${totalAmount} from ${displayName}${memo}`;
-
-        ctx.log?.info(`[${ctx.account.accountId}] ${body}`);
-
-        // Notify owner about the incoming transfer
-        const owner = getOwnerIdentity();
-        if (owner) {
-          sphere.communications.sendDM(`@${owner}`, body).catch((err) => {
-            ctx.log?.error(`[${ctx.account.accountId}] Failed to notify owner about transfer: ${err}`);
-          });
-        }
-
-        const inboundCtx = runtime.channel.reply.finalizeInboundContext({
-          Body: body,
-          RawBody: body,
-          From: replyTo,
-          To: sphere.identity?.nametag ?? sphere.identity?.chainPubkey ?? "agent",
-          SessionKey: `unicity:transfer:${transfer.id}`,
-          ChatType: "direct",
-          Surface: "unicity",
-          Provider: "unicity",
-          OriginatingChannel: "unicity",
-          OriginatingTo: replyTo,
-          AccountId: ctx.account.accountId,
-          SenderName: displayName,
-          SenderId: transfer.senderPubkey,
-          IsOwner: false,
-          CommandAuthorized: false,
-        });
-
-        runtime.channel.reply
-          .dispatchReplyWithBufferedBlockDispatcher({
-            ctx: inboundCtx,
-            cfg: ctx.cfg,
-            dispatcherOptions: {
-              deliver: async (payload: { text?: string }) => {
-                const text = payload.text;
-                if (!text) return;
-                try {
-                  await sphere.communications.sendDM(replyTo, text);
-                } catch (err) {
-                  ctx.log?.error(`[${ctx.account.accountId}] Failed to send DM to ${displayName}: ${err}`);
-                }
-              },
-            },
-          })
-          .catch((err: unknown) => {
-            ctx.log?.error(`[${ctx.account.accountId}] Transfer notification dispatch error: ${err}`);
-          });
-      });
-
-      // Subscribe to incoming payment requests
-      const unsubPaymentRequest = sphere.on("payment_request:incoming", (request) => {
-        ctx.setStatus({ lastEventAt: Date.now() });
-        const replyTo = request.senderNametag ? `@${request.senderNametag}` : request.senderPubkey;
-        const displayName = request.senderNametag ? `@${request.senderNametag}` : request.senderPubkey.slice(0, 12) + "…";
-        const decimals = getCoinDecimals(request.coinId) ?? 0;
-        const amount = toHumanReadable(request.amount, decimals);
-        const msg = request.message ? ` — "${request.message}"` : "";
-        const body = `[Payment request] ${displayName} is requesting ${amount} ${request.symbol}${msg} (request id: ${request.requestId})`;
-
-        ctx.log?.info(`[${ctx.account.accountId}] ${body}`);
-
-        // Notify owner about the incoming payment request
-        const owner = getOwnerIdentity();
-        if (owner) {
-          sphere.communications.sendDM(`@${owner}`, body).catch((err) => {
-            ctx.log?.error(`[${ctx.account.accountId}] Failed to notify owner about payment request: ${err}`);
-          });
-        }
-
-        const inboundCtx = runtime.channel.reply.finalizeInboundContext({
-          Body: body,
-          RawBody: body,
-          From: replyTo,
-          To: sphere.identity?.nametag ?? sphere.identity?.chainPubkey ?? "agent",
-          SessionKey: `unicity:payreq:${request.requestId}`,
-          ChatType: "direct",
-          Surface: "unicity",
-          Provider: "unicity",
-          OriginatingChannel: "unicity",
-          OriginatingTo: replyTo,
-          AccountId: ctx.account.accountId,
-          SenderName: displayName,
-          SenderId: request.senderPubkey,
-          IsOwner: false,
-          CommandAuthorized: false,
-        });
-
-        runtime.channel.reply
-          .dispatchReplyWithBufferedBlockDispatcher({
-            ctx: inboundCtx,
-            cfg: ctx.cfg,
-            dispatcherOptions: {
-              deliver: async (payload: { text?: string }) => {
-                const text = payload.text;
-                if (!text) return;
-                try {
-                  await sphere.communications.sendDM(replyTo, text);
-                } catch (err) {
-                  ctx.log?.error(`[${ctx.account.accountId}] Failed to send DM to ${displayName}: ${err}`);
-                }
-              },
-            },
-          })
-          .catch((err: unknown) => {
-            ctx.log?.error(`[${ctx.account.accountId}] Payment request dispatch error: ${err}`);
-          });
-      });
-
-      // -- Group message dispatch helper & backfill debounce --------------------
-
-      type GroupMsg = {
-        id?: string;
-        groupId: string;
-        senderPubkey: string;
-        senderNametag?: string;
-        content: string;
-        timestamp: number;
-        replyToId?: string;
-      };
-
-      // Detect if a group message is a reply to one of the agent's own messages.
-      // Used to set WasMentioned so the mention gate treats replies-to-self as
-      // implicit mentions (same pattern Discord uses for thread replies).
-      function isReplyToSelf(msg: GroupMsg): boolean {
-        if (!msg.replyToId || !myNostrPubkey) return false;
-        try {
-          const messages = sphere.groupChat?.getMessages?.(msg.groupId) ?? [];
-          const repliedTo = messages.find((m: { id: string }) => m.id === msg.replyToId);
-          return repliedTo?.senderPubkey === myNostrPubkey;
-        } catch {
-          return false;
-        }
-      }
-
-      function dispatchGroupMessage(msg: GroupMsg): void {
-        const senderName = msg.senderNametag ?? msg.senderPubkey.slice(0, 12);
-        const groupData = sphere.groupChat?.getGroup?.(msg.groupId);
-        const groupName = groupData?.name ?? msg.groupId;
-        const isOwner = isSenderOwner(msg.senderPubkey, msg.senderNametag);
-        const metadataHeader = `[SenderName: ${senderName} | SenderId: ${msg.senderPubkey} | GroupId: ${msg.groupId} | GroupName: ${groupName} | IsOwner: ${isOwner} | CommandAuthorized: ${isOwner}]`;
-        const sanitizedContent = msg.content.replace(/\[(?:SenderName|SenderId|IsOwner|CommandAuthorized|GroupId|GroupName)\s*:/gi, "[BLOCKED:");
-
-        // Detect if the agent was mentioned — either by @nametag in the text
-        // or by replying to the agent's own message (implicit mention, mirrors
-        // Discord's behavior). Without this, the mention gate skips the message.
-        const agentTag = sphere.identity?.nametag?.replace(/^@/, "");
-        const wasTextMentioned = agentTag
-          ? msg.content.toLowerCase().includes(`@${agentTag.toLowerCase()}`)
-          : false;
-        const wasMentioned = wasTextMentioned || isReplyToSelf(msg) || undefined;
-
-        ctx.log?.info(`[${ctx.account.accountId}] Group message from ${senderName} in ${groupName}: ${msg.content.slice(0, 80)}`);
-
-        const inboundCtx = runtime.channel.reply.finalizeInboundContext({
-          Body: `${metadataHeader}\n${sanitizedContent}`,
-          From: msg.senderNametag ? `@${msg.senderNametag}` : msg.senderPubkey,
-          To: sphere.identity?.nametag ?? sphere.identity?.chainPubkey ?? "agent",
-          SessionKey: `unicity:group:${msg.groupId}`,
-          ChatType: "group",
-          GroupSubject: groupName,
-          Surface: "unicity",
-          Provider: "unicity",
-          OriginatingChannel: "unicity",
-          OriginatingTo: msg.groupId,
-          AccountId: ctx.account.accountId,
-          SenderName: senderName,
-          SenderId: msg.senderPubkey,
-          IsOwner: isOwner,
-          CommandAuthorized: isOwner,
-          WasMentioned: wasMentioned,
-        });
-
-        runtime.channel.reply
-          .dispatchReplyWithBufferedBlockDispatcher({
-            ctx: inboundCtx,
-            cfg: ctx.cfg,
-            dispatcherOptions: {
-              deliver: async (payload: { text?: string }) => {
-                const text = payload.text;
-                if (!text) return;
-                try {
-                  await sphere.groupChat.sendMessage(msg.groupId, text, msg.id);
-                  ctx.log?.info(`[${ctx.account.accountId}] Group message sent to ${groupName}: ${text.slice(0, 80)}`);
-                } catch (err) {
-                  ctx.log?.error(`[${ctx.account.accountId}] Failed to send group message to ${groupName}: ${err}`);
-                }
-              },
-              onSkip: (payload: { text?: string }, info: { kind: string; reason: string }) => {
-                ctx.log?.warn(`[${ctx.account.accountId}] Group reply SKIPPED: kind=${info.kind} reason=${info.reason}`);
-              },
-              onError: (err: unknown, info: { kind: string }) => {
-                ctx.log?.error(`[${ctx.account.accountId}] Group reply ERROR: kind=${info.kind} err=${err}`);
-              },
-            },
-          })
-          .catch((err: unknown) => {
-            ctx.log?.error(`[${ctx.account.accountId}] Group message dispatch error: ${err}`);
-          });
-      }
-
-      // Per-group backfill state: buffer messages during the initial burst, then
-      // switch to live dispatch once the burst settles.
-      const groupBackfillStates = new Map<string, GroupBackfillState>();
-
-      // Subscribe to incoming group messages
-      const unsubGroupMessage = sphere.groupChat?.onMessage?.((msg: GroupMsg) => {
-        ctx.setStatus({ lastEventAt: Date.now() });
-        // Skip messages from self (echoed back by the relay).
-        // Compare against the Nostr x-only pubkey, not chainPubkey.
-        if (myNostrPubkey && msg.senderPubkey === myNostrPubkey) return;
-
-        // Lookup or create per-group backfill state
-        let state = groupBackfillStates.get(msg.groupId);
-        if (!state) {
-          state = { phase: "buffering", latestMsg: null, bufferedCount: 0, timer: null };
-          groupBackfillStates.set(msg.groupId, state);
-        }
-
-        // Already past backfill — dispatch immediately
-        if (state.phase === "live") {
-          dispatchGroupMessage(msg);
-          return;
-        }
-
-        // BUFFERING: keep only the latest message, reset the debounce timer
-        state.latestMsg = msg;
-        state.bufferedCount++;
-        if (state.timer) clearTimeout(state.timer);
-        state.timer = setTimeout(() => {
-          state!.phase = "live";
-          state!.timer = null;
-          ctx.log?.info(
-            `[${ctx.account.accountId}] Group backfill settled for ${msg.groupId}, ${state!.bufferedCount} message(s) buffered`,
-          );
-          // Dispatch the most recent buffered message so the agent has context
-          if (state!.latestMsg) {
-            dispatchGroupMessage(state!.latestMsg);
-            state!.latestMsg = null;
-          }
-        }, GROUP_BACKFILL_DEBOUNCE_MS);
-      }) ?? (() => {});
-
-      // Subscribe to group lifecycle events and notify owner
-      const unsubGroupJoined = sphere.on?.("groupchat:joined", (event: { groupId: string; groupName: string }) => {
-        const owner = getOwnerIdentity();
-        if (owner) {
-          const label = event.groupName ? `${event.groupName} (${event.groupId})` : event.groupId;
-          sphere.communications.sendDM(`@${owner}`, `I joined group ${label}`).catch((err) => {
-            ctx.log?.error(`[${ctx.account.accountId}] Failed to notify owner about group join: ${err}`);
-          });
-        }
-      }) ?? (() => {});
-
-      const unsubGroupLeft = sphere.on?.("groupchat:left", (event: { groupId: string }) => {
-        const owner = getOwnerIdentity();
-        if (owner) {
-          const groupData = sphere.groupChat?.getGroup?.(event.groupId);
-          const label = groupData?.name ?? event.groupId;
-          sphere.communications.sendDM(`@${owner}`, `I left group ${label}`).catch((err) => {
-            ctx.log?.error(`[${ctx.account.accountId}] Failed to notify owner about group leave: ${err}`);
-          });
-        }
-      }) ?? (() => {});
-
-      const unsubGroupKicked = sphere.on?.("groupchat:kicked", (event: { groupId: string; groupName: string }) => {
-        const owner = getOwnerIdentity();
-        if (owner) {
-          const label = event.groupName ? `${event.groupName} (${event.groupId})` : event.groupId;
-          sphere.communications.sendDM(`@${owner}`, `I was kicked from group ${label}`).catch((err) => {
-            ctx.log?.error(`[${ctx.account.accountId}] Failed to notify owner about group kick: ${err}`);
-          });
-        }
-      }) ?? (() => {});
-
-      function clearBackfillTimers(): void {
-        for (const state of groupBackfillStates.values()) {
-          if (state.timer) clearTimeout(state.timer);
-        }
-        groupBackfillStates.clear();
-      }
-
-      function cleanupSubscriptions(): void {
-        clearBackfillTimers();
-        unsub();
-        unsubTransfer();
-        unsubPaymentRequest();
-        unsubGroupMessage();
-        unsubGroupJoined();
-        unsubGroupLeft();
-        unsubGroupKicked();
-      }
-
-      // Store cleanup so auto-restart can tear down stale handlers
-      previousGatewayCleanup = cleanupSubscriptions;
-
-      // The gateway expects startAccount to return a Promise that stays pending
-      // while the channel is running. Resolving immediately triggers a restart loop.
-      return new Promise<void>((resolve) => {
-        ctx.abortSignal.addEventListener("abort", () => {
-          cleanupSubscriptions();
-          previousGatewayCleanup = null;
-          ctx.setStatus({ connected: false, running: false });
-          ctx.log?.info(`[${ctx.account.accountId}] Unicity channel stopped`);
-          resolve();
-        }, { once: true });
-      });
-    },
+    startAccount: (ctx) => startUnicityAccount(ctx),
   },
 
-  // -- status adapter -------------------------------------------------------
   status: {
     defaultRuntime: {
       accountId: DEFAULT_ACCOUNT_ID,
@@ -744,110 +227,107 @@ export const unicityChannelPlugin = {
       lastStopAt: null,
       lastError: null,
     },
-    buildChannelSummary: (params: { snapshot: Record<string, unknown> }) => ({
-      configured: params.snapshot.configured ?? false,
-      publicKey: params.snapshot.publicKey ?? null,
-      nametag: params.snapshot.nametag ?? null,
-      running: params.snapshot.running ?? false,
-      lastStartAt: params.snapshot.lastStartAt ?? null,
-      lastError: params.snapshot.lastError ?? null,
+    buildChannelSummary: ({ account, snapshot }) => ({
+      configured: snapshot.configured ?? account.configured,
+      publicKey: snapshot.publicKey ?? (account.publicKey || null),
+      nametag: account.nametag ?? null,
+      running: snapshot.running ?? false,
+      lastStartAt: snapshot.lastStartAt ?? null,
+      lastError: snapshot.lastError ?? null,
     }),
-    buildAccountSnapshot: (params: {
-      account: ResolvedUnicityAccount;
-      runtime?: Record<string, unknown>;
-    }) => ({
-      accountId: params.account.accountId,
-      name: params.account.name,
-      enabled: params.account.enabled,
-      configured: params.account.configured,
-      publicKey: params.account.publicKey || undefined,
-      nametag: params.account.nametag,
-      running: (params.runtime?.running as boolean) ?? false,
-      lastStartAt: params.runtime?.lastStartAt ?? null,
-      lastStopAt: params.runtime?.lastStopAt ?? null,
-      lastError: params.runtime?.lastError ?? null,
+    buildAccountSnapshot: ({ account, runtime }) => ({
+      ...runtime,
+      accountId: account.accountId,
+      name: account.name,
+      enabled: account.enabled,
+      configured: account.configured,
+      publicKey: account.publicKey || null,
     }),
   },
 
-  // -- messaging adapter (target normalization) -----------------------------
   messaging: {
-    normalizeTarget: (target: string) => target.replace(/^@/, "").trim(),
+    normalizeTarget: (raw) => normalizeUnicityTarget(raw),
     targetResolver: {
-      looksLikeId: (input: string) => VALID_RECIPIENT.test(input.trim()),
-      hint: "<@nametag|hex pubkey>",
+      looksLikeId: (raw, normalized) => looksLikeTarget((normalized ?? raw).trim()),
+      hint: "<@nametag|pubkey|group id>",
     },
   },
 
-  // -- security adapter (DM access control) ---------------------------------
+  agentPrompt: {
+    inboundFormattingHints: () => ({
+      text_markup: "plain_text",
+      rules: [
+        "Unicity DMs and group messages are shown as plain text: no Markdown headings, tables or HTML.",
+        "State coin symbols with amounts. Never include private keys, mnemonics or wallet file paths.",
+      ],
+    }),
+    messageToolHints: () => [
+      "- Unicity `target`: `@nametag`, a 64-hex public key, or a group id. The current sender already receives your normal reply; use the message tool only for other recipients.",
+    ],
+  },
+
   security: {
-    resolveDmPolicy: (params: { account: ResolvedUnicityAccount }) => ({
-      policy: params.account.config.dmPolicy ?? "open",
-      allowFrom: params.account.config.allowFrom ?? [],
-      policyPath: "plugins.entries.openclaw-unicity.config.dmPolicy",
-      allowFromPath: "plugins.entries.openclaw-unicity.config.allowFrom",
-      approveHint: 'openclaw config set plugins.entries.openclaw-unicity.config.allowFrom \'["<pubkey-or-nametag>"]\'',
-    }),
+    // Read defensively: the security audit may pass partial account objects.
+    resolveDmPolicy: ({ cfg, account }) => {
+      const config = account?.config ?? resolveUnicityAccount(cfg).config;
+      const allowFrom = config.allowFrom ?? [];
+      const policy = effectiveDmPolicy(config.dmPolicy, allowFrom);
+      const section = channelSection(cfg);
+      return {
+        policy,
+        allowFrom: policy === "open" ? ["*"] : allowFrom,
+        policyPath: section?.dmPolicy !== undefined ? `${CHANNEL_CONFIG_PREFIX}dmPolicy` : `${PLUGIN_CONFIG_PREFIX}dmPolicy`,
+        // A prefix: core renders `${allowFromPath}allowFrom`.
+        allowFromPath: section?.allowFrom !== undefined ? CHANNEL_CONFIG_PREFIX : PLUGIN_CONFIG_PREFIX,
+        approveHint:
+          policy === "pairing"
+            ? "Approve via: openclaw pairing list unicity / openclaw pairing approve unicity <code>"
+            : `openclaw config set ${CHANNEL_CONFIG_PREFIX}allowFrom '["<64-hex pubkey or @nametag>"]'`,
+        normalizeEntry: normalizeAllowEntry,
+        classifyEntryAuthentication: classifyAllowEntry,
+      };
+    },
+    dmRouting: {
+      resolveDmScope: ({ cfg }) => resolveUnicityDmScope(cfg),
+    },
   },
 
-  // -- onboarding adapter (interactive setup via `openclaw onboard`) ---------
-  onboarding: {
-    channel: "unicity",
-
-    getStatus: async (_ctx) => ({
-      channel: "unicity" as const,
-      configured: walletExists(),
-      statusLines: walletExists()
-        ? [`Nametag: ${activeSphere?.identity?.nametag ?? "pending"}`]
-        : ["Not configured — run setup to create wallet"],
-      quickstartScore: 80,
-    }),
-
-    configure: async (ctx) => {
-      const { prompter, cfg } = ctx;
-      await runInteractiveSetup(prompter, {
-        loadConfig: () => cfg as Record<string, unknown>,
-        writeConfigFile: async (updatedCfg) => {
-          Object.assign(cfg, updatedCfg);
-        },
-      });
-      return { cfg };
+  pairing: {
+    idLabel: "Unicity pubkey",
+    normalizeAllowEntry,
+    // Runs where the approval happens; the CLI has no open wallet and cannot notify.
+    notifyApproval: async ({ id }) => {
+      const sphere = getSphereOrNull();
+      if (!sphere) throw new Error("the Unicity wallet is not open in this process; the requester was not notified");
+      const key = toXOnly(id);
+      if (!key) return;
+      await sphere.communications.sendDM(key, "Your access request was approved. You can message this agent now.");
     },
-  } satisfies ChannelOnboardingAdapter,
+  },
 
-  // -- groups adapter (group chat policy) -----------------------------------
+  setupWizard,
+
+  doctor,
+
   groups: {
     resolveRequireMention: () => false,
   },
 
-  // -- directory adapter (group/member listing) -----------------------------
   directory: {
     listGroups: async () => {
-      const sphere = activeSphere;
-      if (!sphere) return [];
-      try {
-        const groups = sphere.groupChat?.getGroups?.() ?? [];
-        return groups.map((g: { id: string; name: string }) => ({
-          kind: "group" as const,
-          id: g.id,
-          name: g.name,
-        }));
-      } catch {
-        return [];
-      }
+      const groupChat = getSphereOrNull()?.groupChat;
+      if (!groupChat) return [];
+      return groupChat.getGroups().map((g) => ({ kind: "group" as const, id: g.id, name: g.name }));
     },
-    listGroupMembers: async ({ groupId }: { groupId: string }) => {
-      const sphere = activeSphere;
-      if (!sphere) return [];
-      try {
-        const members = sphere.groupChat?.getMembers?.(groupId) ?? [];
-        return members.map((m: { pubkey: string; nametag?: string }) => ({
-          kind: "user" as const,
-          id: m.pubkey,
-          name: m.nametag,
-        }));
-      } catch {
-        return [];
-      }
+    // Member nametags are self-asserted: expose them only as an unverified hint, never as a resolvable name.
+    listGroupMembers: async ({ groupId }) => {
+      const groupChat = getSphereOrNull()?.groupChat;
+      if (!groupChat) return [];
+      return groupChat.getMembers(groupId).flatMap((m) => {
+        const key = toXOnly(m.pubkey);
+        if (!key) return [];
+        return [{ kind: "user" as const, id: key, name: `${shortKey(key)}${claimedNameSuffix(m.nametag)}` }];
+      });
     },
   },
-};
+} satisfies ChannelPlugin<ResolvedUnicityAccount>;

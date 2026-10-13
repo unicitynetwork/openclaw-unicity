@@ -13,11 +13,21 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
           registry-url: "https://registry.npmjs.org"
 
+      # .npmrc sets ignore-scripts=true, so no dependency install scripts run
+      # (openclaw's included). The unit tests still import a few
+      # openclaw/plugin-sdk runtime helpers, so `npm test` runs some OpenClaw code.
       - run: npm ci
 
       - run: npm run lint
 
+      - run: npm run typecheck
+
       - run: npm test
+
+      - run: npm run build
+
+      - name: Verify packed tarball contains the built entry
+        run: npm pack --dry-run --json | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const f=JSON.parse(d)[0].files.map(x=>x.path);if(!f.includes("dist/index.js")){console.error("dist/index.js missing from tarball");process.exit(1)}})'

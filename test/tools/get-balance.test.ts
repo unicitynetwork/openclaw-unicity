@@ -1,92 +1,80 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { UCT, USDCE, USDU, makePayments, makeSphere, registry, resetRegistry, sdkError, text, wallet, type FakePayments } from "./payments-fixtures.js";
 
-const mockGetAssets = vi.fn();
-const mockGetSphere = vi.fn();
-const mockToHumanReadable = vi.fn();
-const mockGetCoinDecimals = vi.fn();
-
-vi.mock("../../src/sphere.js", () => ({
-  getSphere: () => mockGetSphere(),
+vi.mock("@unicitylabs/sphere-sdk", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  ...(await import("./payments-fixtures.js")).registryExports,
 }));
-
-vi.mock("../../src/assets.js", () => ({
-  getCoinDecimals: (coin: string) => mockGetCoinDecimals(coin),
-  toHumanReadable: (amount: string, decimals: number) => mockToHumanReadable(amount, decimals),
-}));
+vi.mock("../../src/storage.js", async () => (await import("./payments-fixtures.js")).storageExports);
+vi.mock("../../src/sphere.js", async () => {
+  const f = await import("./payments-fixtures.js");
+  return { getSphereOrNull: () => f.wallet.sphere };
+});
 
 const { getBalanceTool } = await import("../../src/tools/get-balance.js");
 
-describe("getBalanceTool", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockGetSphere.mockReturnValue({
-      payments: { getAssets: mockGetAssets },
-    });
-    mockToHumanReadable.mockImplementation((amount: string) => amount);
-  });
+const asset = (coinId: string, symbol: string, name: string, decimals: number, totalAmount: string, tokenCount: number, transferringAmount = "0") => ({
+  coinId, symbol, name, decimals, totalAmount, tokenCount, transferringAmount,
+  confirmedAmount: totalAmount, unconfirmedAmount: "0", confirmedTokenCount: tokenCount, unconfirmedTokenCount: 0, transferringTokenCount: 0,
+  priceUsd: null, priceEur: null, change24h: null, fiatValueUsd: null, fiatValueEur: null,
+});
 
-  it("has correct name and description", () => {
+let payments: FakePayments;
+
+beforeEach(() => {
+  resetRegistry();
+  payments = makePayments();
+  wallet.sphere = makeSphere(payments);
+});
+
+describe("unicity_get_balance", () => {
+  it("is owner only without IsOwner wording", () => {
     expect(getBalanceTool.name).toBe("unicity_get_balance");
-    expect(getBalanceTool.description).toContain("balance");
+    expect(getBalanceTool.description).toContain("Owner only (enforced by the plugin)");
+    expect(getBalanceTool.description).not.toContain("IsOwner");
   });
 
-  it("returns formatted balance lines", async () => {
-    mockGetAssets.mockResolvedValue([
-      { coinId: "ALPHA", symbol: "ALPHA", name: "Alpha", totalAmount: "500", tokenCount: 3, decimals: 0 },
-      { coinId: "BETA", symbol: "BETA", name: "Beta", totalAmount: "100", tokenCount: 1, decimals: 0 },
+  it("formats each asset with its own decimals and shows in-flight amounts", async () => {
+    payments.assets.mockResolvedValue([
+      asset(UCT, "UCT", "Unicity", 18, "2500000000000000000", 3, "1000000000000000000"),
+      asset(USDU, "USDU", "Unicity-usd", 6, "1000000", 1),
     ]);
-
-    const result = await getBalanceTool.execute("call-1", {});
-
-    expect(mockGetAssets).toHaveBeenCalledWith(undefined);
-    expect(result.content[0].text).toContain("Alpha (ALPHA): 500 (3 tokens)");
-    expect(result.content[0].text).toContain("Beta (BETA): 100 (1 token)");
+    const result = await getBalanceTool.execute("call", {});
+    expect(payments.assets).toHaveBeenCalledWith(undefined);
+    expect(text(result)).toBe("Unicity (UCT): 2.5 UCT (3 tokens, 1 UCT being sent)\nUnicity-usd (USDU): 1 USDU (1 token)");
+    expect(result.details).toMatchObject({ balances: [expect.objectContaining({ coinId: UCT, totalAmount: "2500000000000000000" }), expect.anything()] });
   });
 
-  it("filters by coinId when provided", async () => {
-    mockGetAssets.mockResolvedValue([
-      { coinId: "ALPHA", symbol: "ALPHA", name: "Alpha", totalAmount: "500", tokenCount: 3, decimals: 0 },
-    ]);
-
-    await getBalanceTool.execute("call-2", { coinId: "ALPHA" });
-
-    expect(mockGetAssets).toHaveBeenCalledWith("ALPHA");
+  it("resolves a coin filter to the registry hex id", async () => {
+    payments.assets.mockResolvedValue([asset(UCT, "UCT", "Unicity", 18, "1000000000000000000", 1)]);
+    await getBalanceTool.execute("call", { coin: "uct" });
+    expect(payments.assets).toHaveBeenCalledWith(UCT);
+    expect(payments.unverifiedAssets).toHaveBeenCalledWith(UCT);
   });
 
-  it("returns empty message when no balances", async () => {
-    mockGetAssets.mockResolvedValue([]);
-
-    const result = await getBalanceTool.execute("call-3", {});
-    expect(result.content[0].text).toContain("no tokens");
+  it("lists claimed-coin holdings pending verification separately", async () => {
+    payments.unverifiedAssets.mockResolvedValue([asset(USDCE, "USDC.e", "Usd-coin-bridged", 6, "5000000", 1)]);
+    const out = text(await getBalanceTool.execute("call", { coin: "USDC" }));
+    expect(payments.assets).toHaveBeenCalledWith(USDCE);
+    expect(out).toBe("Pending verification (not spendable):\n  USDC.e: 5 USDC.e");
   });
 
-  it("uses asset registry decimals over SDK decimals", async () => {
-    mockGetCoinDecimals.mockReturnValue(18);
-    mockGetAssets.mockResolvedValue([
-      { coinId: "455ad8...", symbol: "UCT", name: "unicity", totalAmount: "10000000000000000000", tokenCount: 1, decimals: 8 },
-    ]);
-
-    await getBalanceTool.execute("call-dec", {});
-
-    // Should call toHumanReadable with registry decimals (18), not SDK decimals (8)
-    expect(mockToHumanReadable).toHaveBeenCalledWith("10000000000000000000", 18);
+  it("says when there is nothing", async () => {
+    expect(text(await getBalanceTool.execute("call", {}))).toBe("The wallet holds no tokens.");
+    expect(text(await getBalanceTool.execute("call", { coin: "UCT" }))).toBe("No UCT balance.");
   });
 
-  it("falls back to SDK decimals when registry has no entry", async () => {
-    mockGetCoinDecimals.mockReturnValue(undefined);
-    mockGetAssets.mockResolvedValue([
-      { coinId: "unknown", symbol: "???", name: "unknown", totalAmount: "100", tokenCount: 1, decimals: 6 },
-    ]);
-
-    await getBalanceTool.execute("call-fb", {});
-
-    expect(mockToHumanReadable).toHaveBeenCalledWith("100", 6);
+  it("rejects unknown coins and waits for the registry only when filtering", async () => {
+    expect((await getBalanceTool.execute("call", { coin: "FAKE" })).details).toMatchObject({ code: "unknown_coin" });
+    registry.ready = false;
+    expect((await getBalanceTool.execute("call", { coin: "UCT" })).details).toMatchObject({ code: "registry_not_ready" });
+    expect((await getBalanceTool.execute("call", {})).details).toEqual({ balances: [], unverified: [] });
   });
 
-  it("returns coin-specific empty message when coinId provided", async () => {
-    mockGetAssets.mockResolvedValue([]);
-
-    const result = await getBalanceTool.execute("call-4", { coinId: "ALPHA" });
-    expect(result.content[0].text).toContain("No balance found for ALPHA");
+  it("reports read failures and an unavailable wallet", async () => {
+    payments.assets.mockRejectedValue(new Error("mirror not loaded"));
+    expect((await getBalanceTool.execute("call", {})).details).toMatchObject({ status: "error", code: "balance_unavailable" });
+    wallet.sphere = makeSphere(payments, { paymentsError: sdkError("PAYMENTS_NOT_COMPOSED") });
+    expect((await getBalanceTool.execute("call", {})).details).toMatchObject({ code: "payments_unavailable" });
   });
 });

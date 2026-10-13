@@ -1,78 +1,63 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockSendDM = vi.fn();
-const mockGetSphere = vi.fn();
+const mockGetSphereOrNull = vi.fn();
 
-vi.mock("../../src/sphere.js", () => ({
-  getSphere: () => mockGetSphere(),
-}));
+vi.mock("../../src/sphere.js", () => ({ getSphereOrNull: () => mockGetSphereOrNull() }));
+vi.mock("../../src/assets.js", () => ({ formatAmount: vi.fn() }));
 
 const { sendMessageTool } = await import("../../src/tools/send-message.js");
+
+const text = (r: { content: Array<{ text: string }> }) => r.content[0].text;
 
 describe("sendMessageTool", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetSphere.mockReturnValue({
-      communications: { sendDM: mockSendDM },
-    });
+    mockGetSphereOrNull.mockReturnValue({ communications: { sendDM: mockSendDM } });
   });
 
-  it("has correct name and description", () => {
+  it("has the right name and an owner-only description without the old IsOwner header", () => {
     expect(sendMessageTool.name).toBe("unicity_send_message");
-    expect(sendMessageTool.description).toContain("direct message");
+    expect(sendMessageTool.description).toContain("Owner only (enforced by the plugin)");
+    expect(sendMessageTool.description).not.toContain("IsOwner");
   });
 
-  it("calls sphere.communications.sendDM with correct args", async () => {
+  it("sends the DM to the trimmed recipient and reports the message id", async () => {
     mockSendDM.mockResolvedValue({ id: "dm-42" });
-
-    const result = await sendMessageTool.execute("call-1", {
-      recipient: "@alice",
-      message: "Hello Alice!",
-    });
-
+    const result = await sendMessageTool.execute("c1", { recipient: "  @alice ", message: "Hello Alice!" });
     expect(mockSendDM).toHaveBeenCalledWith("@alice", "Hello Alice!");
-    expect(result.content[0].text).toContain("@alice");
-    expect(result.content[0].text).toContain("dm-42");
+    expect(text(result)).toContain("@alice");
+    expect(text(result)).toContain("dm-42");
+    expect(result.details).toEqual({ recipient: "@alice", messageId: "dm-42" });
   });
 
-  it("accepts a 64-char hex pubkey as recipient", async () => {
-    mockSendDM.mockResolvedValue({ id: "dm-99" });
-    const hexKey = "a".repeat(64);
-
-    await sendMessageTool.execute("call-3", {
-      recipient: hexKey,
-      message: "hi",
-    });
-
-    expect(mockSendDM).toHaveBeenCalledWith(hexKey, "hi");
+  it("accepts 64-hex, 66-hex chain keys and DIRECT:// addresses", async () => {
+    mockSendDM.mockResolvedValue({ id: "dm" });
+    for (const recipient of ["a".repeat(64), `02${"b".repeat(64)}`, `DIRECT://${"c".repeat(40)}`]) {
+      await sendMessageTool.execute("c2", { recipient, message: "hi" });
+      expect(mockSendDM).toHaveBeenLastCalledWith(recipient, "hi");
+    }
   });
 
-  it("rejects invalid recipient format", async () => {
-    await expect(
-      sendMessageTool.execute("call-4", {
-        recipient: "not valid!",
-        message: "hi",
-      }),
-    ).rejects.toThrow("Invalid recipient format");
+  it("rejects PROXY: and malformed recipients without sending", async () => {
+    for (const recipient of ["PROXY:abc", "not valid!", ""]) {
+      const result = await sendMessageTool.execute("c3", { recipient, message: "hi" });
+      expect(result.details).toMatchObject({ status: "error", code: "invalid_recipient" });
+    }
+    expect(text(await sendMessageTool.execute("c3", { recipient: "PROXY:abc", message: "hi" }))).toContain("PROXY");
+    expect(mockSendDM).not.toHaveBeenCalled();
   });
 
-  it("rejects empty recipient", async () => {
-    await expect(
-      sendMessageTool.execute("call-5", {
-        recipient: "",
-        message: "hi",
-      }),
-    ).rejects.toThrow("Invalid recipient format");
+  it("reports wallet_not_ready while the wallet is starting", async () => {
+    mockGetSphereOrNull.mockReturnValue(null);
+    const result = await sendMessageTool.execute("c4", { recipient: "@bob", message: "hi" });
+    expect(result.details).toMatchObject({ status: "error", code: "wallet_not_ready" });
   });
 
-  it("propagates sendDM errors", async () => {
+  it("returns an error result when sendDM fails", async () => {
     mockSendDM.mockRejectedValue(new Error("relay unreachable"));
-
-    await expect(
-      sendMessageTool.execute("call-2", {
-        recipient: "@bob",
-        message: "test",
-      }),
-    ).rejects.toThrow("relay unreachable");
+    const result = await sendMessageTool.execute("c5", { recipient: "@bob", message: "test" });
+    expect(result.details).toMatchObject({ status: "error", code: "send_failed" });
+    expect(text(result)).toContain("relay unreachable");
   });
 });

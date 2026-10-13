@@ -1,36 +1,160 @@
 {
   "id": "openclaw-unicity",
+  "name": "Unicity",
+  "description": "Unicity wallet identity, encrypted DMs, NIP-29 group chat and token payments via the Sphere SDK.",
   "channels": ["unicity"],
+  "activation": {
+    "onStartup": true
+  },
+  "cliCommands": [
+    {
+      "name": "unicity",
+      "description": "Unicity wallet and identity",
+      "hasSubcommands": true
+    }
+  ],
+  "contracts": {
+    "tools": [
+      "unicity_send_message",
+      "unicity_get_balance",
+      "unicity_list_tokens",
+      "unicity_get_transaction_history",
+      "unicity_send_tokens",
+      "unicity_list_payment_requests",
+      "unicity_respond_payment_request",
+      "unicity_top_up",
+      "unicity_create_public_group",
+      "unicity_create_private_group",
+      "unicity_join_group",
+      "unicity_leave_group",
+      "unicity_send_group_message",
+      "unicity_request_payment",
+      "unicity_list_groups"
+    ]
+  },
+  "toolMetadata": {
+    "unicity_send_message": { "profiles": ["messaging"], "sideEffecting": true },
+    "unicity_get_balance": { "profiles": ["messaging"] },
+    "unicity_list_tokens": { "profiles": ["messaging"] },
+    "unicity_get_transaction_history": { "profiles": ["messaging"] },
+    "unicity_send_tokens": { "profiles": ["messaging"], "sideEffecting": true },
+    "unicity_list_payment_requests": { "profiles": ["messaging"] },
+    "unicity_respond_payment_request": { "profiles": ["messaging"], "sideEffecting": true },
+    "unicity_top_up": { "profiles": ["messaging"], "sideEffecting": true },
+    "unicity_create_public_group": { "profiles": ["messaging"], "sideEffecting": true },
+    "unicity_create_private_group": { "profiles": ["messaging"], "sideEffecting": true },
+    "unicity_join_group": { "profiles": ["messaging"], "sideEffecting": true },
+    "unicity_leave_group": { "profiles": ["messaging"], "sideEffecting": true },
+    "unicity_send_group_message": { "profiles": ["messaging"], "sideEffecting": true },
+    "unicity_request_payment": { "profiles": ["messaging"], "sideEffecting": true },
+    "unicity_list_groups": { "profiles": ["messaging"] }
+  },
+  "uiHints": {
+    "network": { "label": "Network" },
+    "nametag": { "label": "Agent nametag", "placeholder": "mybot" },
+    "owner": { "label": "Owner", "placeholder": "@alice or 64-hex public key" },
+    "ownerPubkeys": { "label": "Additional owner public keys" },
+    "apiKey": {
+      "label": "Unicity API key",
+      "help": "Get one at https://sphere.unicity.network. Without it the wallet runs messaging-only (no payments).",
+      "sensitive": true
+    },
+    "walletApiUrl": { "label": "Wallet API URL", "placeholder": "https://wallet-api.unicity.network" },
+    "strangerToolsAllow": {
+      "label": "Extra tools for non-owner turns",
+      "help": "Dangerous: anything listed here is available to anyone who can message the agent.",
+      "advanced": true
+    }
+  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
       "network": {
         "type": "string",
-        "enum": ["testnet", "mainnet", "dev"],
-        "default": "testnet"
+        "enum": ["testnet2", "mainnet"],
+        "default": "testnet2",
+        "description": "Unicity network."
       },
       "nametag": {
-        "type": "string"
+        "type": "string",
+        "description": "Nametag to register for the agent's wallet (without '@')."
       },
       "owner": {
         "type": "string",
-        "description": "Nametag or public key of the trusted human owner. Only the owner can give commands to the agent."
+        "description": "The human owner: a nametag (resolved and pinned on first start) or a 64/66-hex public key. Only the owner can use the wallet tools: on Unicity in DMs, never in Unicity groups. A sender OpenClaw recognizes as owner on another channel (commands.ownerAllowFrom) gets them there too, in that channel's group chats as well."
+      },
+      "ownerPubkeys": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Additional owner public keys (64- or 66-hex), e.g. for owner clients that sign with another key."
       },
       "additionalRelays": {
         "type": "array",
-        "items": { "type": "string" }
+        "items": { "type": "string" },
+        "description": "Extra Nostr relay URLs for direct messages."
+      },
+      "apiKey": {
+        "type": "string",
+        "description": "Unicity gateway API key for the configured network; get one at https://sphere.unicity.network. Payments need it: without it the wallet runs messaging-only (DMs and groups)."
+      },
+      "walletApiUrl": {
+        "type": "string",
+        "description": "Override of the configured network's wallet API URL. It belongs to that network: 'openclaw unicity setup' removes it when you switch networks."
       },
       "dmPolicy": {
         "type": "string",
         "enum": ["open", "allowlist", "pairing", "disabled"],
-        "default": "open",
-        "description": "DM access control policy. 'open' allows anyone, 'allowlist' restricts to allowFrom list, 'pairing' requires mutual opt-in, 'disabled' blocks all inbound DMs."
+        "description": "Who may DM the agent: 'open' (anyone; the default when unset), 'allowlist' (the owner and allowFrom), 'pairing' (unknown senders must be approved; paused while commands.ownerAllowFrom names no command owner), 'disabled' (nobody, the owner included). Covers DMs and wallet events only; groups are limited to those the owner joined or created. channels.unicity.dmPolicy takes precedence."
       },
       "allowFrom": {
         "type": "array",
         "items": { "type": "string" },
-        "description": "List of nametags or public keys allowed to DM when dmPolicy is 'allowlist'."
+        "description": "Nametags or public keys allowed to DM the agent under 'allowlist' (and pre-approved under 'pairing'). With 'open', any entry other than \"*\" restricts DMs to the listed senders."
+      },
+      "strangerToolsAllow": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Extra tools offered on non-owner Unicity turns (strangers' DMs, every Unicity group turn, incoming transfers and payment requests) on top of unicity_request_payment and unicity_list_groups (in groups unicity_list_groups only). DANGEROUS: anything listed is available to anyone who can message the agent; never add exec, file-system, sessions or message tools. Owner-only unicity_* tools, and unicity_request_payment in groups, stay blocked regardless: entries that would select one (a wildcard such as '*' or 'unicity_*', 'group:plugins', the plugin id) are ignored."
+      },
+      "groupChat": {
+        "description": "NIP-29 group chat: true (network default relays), false (no group traffic at all), or { relays: [...] }.",
+        "anyOf": [
+          { "type": "boolean" },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "relays": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "channelConfigs": {
+    "unicity": {
+      "label": "Unicity",
+      "description": "Encrypted Unicity DMs and NIP-29 group chats for the agent's wallet identity.",
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "false disables the whole openclaw-unicity plugin, not only the channel: the wallet does not open and the wallet tools are not registered."
+          },
+          "name": { "type": "string" },
+          "dmPolicy": { "type": "string", "enum": ["open", "allowlist", "pairing", "disabled"] },
+          "allowFrom": { "type": "array", "items": { "type": "string" } },
+          "healthMonitor": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": { "type": "boolean" }
+            }
+          }
+        }
       }
     }
   }
