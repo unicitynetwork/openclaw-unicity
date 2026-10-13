@@ -29,5 +29,8 @@ jobs:
 
       - run: npm run build
 
+      # Lists the packed artifact itself: the shape of `npm pack --json` differs between npm versions.
       - name: Verify packed tarball contains the built entry
-        run: npm pack --dry-run --json | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const f=JSON.parse(d)[0].files.map(x=>x.path);if(!f.includes("dist/index.js")){console.error("dist/index.js missing from tarball");process.exit(1)}})'
+        run: |
+          TARBALL="$(npm pack --silent)"
+          tar -tzf "$TARBALL" | grep -x 'package/dist/index.js' > /dev/null || { echo "dist/index.js missing from $TARBALL" >&2; exit 1; }
