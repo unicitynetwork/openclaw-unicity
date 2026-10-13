@@ -26,6 +26,7 @@
     "dist/**/*",
     "src/**/*",
     "openclaw.plugin.json",
+    "assets/icon.png",
     "LICENSE",
     "README.md"
   ],
