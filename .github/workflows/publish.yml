@@ -56,7 +56,7 @@ jobs:
           fi
 
       - name: Set version in package.json
-        run: npm version "${{ steps.version.outputs.value }}" --no-git-tag-version
+        run: npm version "${{ steps.version.outputs.value }}" --no-git-tag-version --allow-same-version
 
       - run: npm ci
 
@@ -92,7 +92,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add package.json
-          git commit -m "v${{ steps.version.outputs.value }}"
+          # The version may already be set in package.json (bumped in a PR): then there is nothing to commit.
+          git diff --cached --quiet || git commit -m "v${{ steps.version.outputs.value }}"
           git tag "v${{ steps.version.outputs.value }}"
           git push origin HEAD --tags
 
