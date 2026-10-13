@@ -1,395 +1,255 @@
 /**
- * E2E tests for Unicity wallet functionality.
+ * Live testnet2 e2e for the wallet operations the plugin's tools and channel use, with two wallets
+ * composed exactly like the gateway's (createWalletApiProviders, public testnet2 key, unique deviceId):
+ * DMs by nametag and by x-only key, self-mint (there is no faucet), send + receive, and payment
+ * requests (create -> list -> pay).
  *
- * Tests real Sphere SDK operations on testnet:
- * - Wallet creation with random nametags
- * - Faucet fund requests
- * - DM sending between nametags
- * - Token transfers with finalization
+ * Money rules from the SDK apply here too: a failed mint() is never re-called (its journal replays it via
+ * resumeNow()), and a possibly-committed send/pay is never re-issued; both converge by waiting.
+ * The shared testnet2 gateway throttles certification, so the token steps have generous timeouts.
  *
- * Run manually: npm run test:e2e
- *
- * NOT for CI - requires network access to testnet relays and faucet.
+ * Run: UNICITY_E2E=1 npx vitest run --config vitest.e2e.config.ts test/e2e/wallet-dm-and-tokens.test.ts
  */
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { randomBytes } from "node:crypto";
+import {
+  TokenRegistry,
+  getCoinIdBySymbol,
+  getTokenDecimals,
+  isPossiblyCommittedSendOutcome,
+  parseTokenAmount,
+  toHumanReadable,
+  type IncomingTransfer,
+  type Sphere,
+} from "@unicitylabs/sphere-sdk";
+import type { PaymentRequestView } from "@unicitylabs/sphere-sdk/payments-v2";
+import { DmInbox, destroyAll, openTestWallet, pollUntil, randomNametag, removeDir, tempDir, toXOnly } from "./support/wallet.js";
 
-import { describe, it, expect, afterEach } from "vitest";
-import { Sphere } from "@unicitylabs/sphere-sdk";
-import { createNodeProviders } from "@unicitylabs/sphere-sdk/impl/nodejs";
-import type { DirectMessage } from "@unicitylabs/sphere-sdk";
-import { mkdirSync, rmSync, existsSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+const DM_TIMEOUT_MS = 45_000;
+const MINT_TIMEOUT_MS = 300_000;
+const SETTLE_TIMEOUT_MS = 300_000;
+const REQUEST_ARRIVAL_TIMEOUT_MS = 120_000;
+/** Errors mint() returns before journaling; anything else converges through the journal replay. */
+const MINT_PRE_JOURNAL_REFUSAL = /even-length lowercase hex|issued only by token type/;
 
-// =============================================================================
-// Constants
-// =============================================================================
+type Party = { label: string; sphere: Sphere; dir: string; nametag: string; chainPubkey: string; xOnly: string; inbox: DmInbox };
 
-const FAUCET_URL = "https://faucet.unicity.network/api/v1/faucet/request";
-const TRUSTBASE_URL =
-  "https://raw.githubusercontent.com/unicitynetwork/unicity-ids/refs/heads/main/bft-trustbase.testnet.json";
+const nonce = (): string => randomBytes(6).toString("hex");
 
-/** Default testnet API key (from Sphere app) */
-const DEFAULT_API_KEY = "sk_06365a9c44654841a366068bcfc68986";
-
-// Timeouts
-const RELAY_SETTLE_MS = 5000;
-const DM_TIMEOUT_MS = 30000;
-const FAUCET_TIMEOUT_MS = 30000;
-const TOKEN_RECEIVE_TIMEOUT_MS = 60000;
-
-// =============================================================================
-// Helpers
-// =============================================================================
-
-const rand = () => Math.random().toString(36).slice(2, 8);
-
-function randomNametag(prefix: string): string {
-  // Nametag must be alphanumeric only (no hyphens), 3-20 chars
-  const suffix = rand().replace(/[^a-z0-9]/g, "");
-  const ts = (Date.now() % 10000).toString();
-  return `${prefix}${suffix}${ts}`.slice(0, 20);
+function balanceOf(sphere: Sphere, coinId: string): bigint {
+  return sphere.payments.tokens({ coinId }).reduce((sum, t) => sum + BigInt(t.amount), 0n);
 }
 
-interface TempDirs {
-  base: string;
-  dataDir: string;
-  tokensDir: string;
-}
-
-function makeTempDirs(label: string): TempDirs {
-  const base = join(tmpdir(), `unicity-e2e-${label}-${Date.now()}-${rand()}`);
-  const dataDir = join(base, "data");
-  const tokensDir = join(base, "tokens");
-  mkdirSync(dataDir, { recursive: true });
-  mkdirSync(tokensDir, { recursive: true });
-  return { base, dataDir, tokensDir };
-}
-
-async function ensureTrustbase(dataDir: string): Promise<void> {
-  const trustbasePath = join(dataDir, "trustbase.json");
-  if (existsSync(trustbasePath)) return;
-
-  const res = await fetch(TRUSTBASE_URL);
-  if (!res.ok) {
-    throw new Error(`Failed to download trustbase: ${res.status}`);
-  }
-  const data = await res.text();
-  writeFileSync(trustbasePath, data);
-}
-
-interface WalletContext {
-  sphere: Sphere;
-  dirs: TempDirs;
-  nametag: string;
-}
-
-async function createWallet(label: string, nametag?: string): Promise<WalletContext> {
-  const dirs = makeTempDirs(label);
-  await ensureTrustbase(dirs.dataDir);
-
-  const actualNametag = nametag ?? randomNametag(label);
-
-  const providers = createNodeProviders({
-    network: "testnet",
-    dataDir: dirs.dataDir,
-    tokensDir: dirs.tokensDir,
-    oracle: {
-      trustBasePath: join(dirs.dataDir, "trustbase.json"),
-      apiKey: DEFAULT_API_KEY,
+/**
+ * Drains `p`'s mailbox until its `coinId` balance satisfies `ok`. `resume` is the sender of a possibly-committed
+ * op: its resumeNow() (the SDK retry verb, same transferId) is driven while waiting.
+ */
+async function waitForBalance(p: Party, coinId: string, what: string, ok: (b: bigint) => boolean, resume?: Party): Promise<bigint> {
+  return pollUntil(
+    what,
+    async () => {
+      if (resume) await resume.sphere.payments.resumeNow().catch(() => undefined);
+      await p.sphere.payments.receive().catch(() => undefined);
+      const b = balanceOf(p.sphere, coinId);
+      return ok(b) ? b : null;
     },
-  });
-
-  const result = await Sphere.init({
-    ...providers,
-    autoGenerate: true,
-    nametag: actualNametag,
-  });
-
-  return { sphere: result.sphere, dirs, nametag: actualNametag };
+    { timeoutMs: SETTLE_TIMEOUT_MS, intervalMs: 5_000 },
+  );
 }
 
-function waitForDM(sphere: Sphere, timeoutMs = DM_TIMEOUT_MS): Promise<DirectMessage> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error(`Timeout: DM not received within ${timeoutMs}ms`)),
-      timeoutMs
-    );
-    sphere.communications.onDirectMessage((msg) => {
-      clearTimeout(timer);
-      resolve(msg);
-    });
-  });
+/** One mint() call; a journaled failure converges via resumeNow(), never via a second mint(). */
+async function mintOnce(p: Party, coinId: string, amount: bigint): Promise<void> {
+  const before = balanceOf(p.sphere, coinId);
+  const res = await p.sphere.payments.mint(coinId, amount);
+  if (!res.success) {
+    if (MINT_PRE_JOURNAL_REFUSAL.test(res.error ?? "")) throw new Error(`mint refused: ${res.error}`);
+    console.log(`[e2e] ${p.label}: mint not admitted directly (${res.error}); converging via journal replay`);
+  }
+  await pollUntil(
+    `${p.label} mint of ${amount} to land`,
+    async () => {
+      if (!res.success) await p.sphere.payments.resumeNow().catch(() => undefined);
+      return balanceOf(p.sphere, coinId) >= before + amount;
+    },
+    { timeoutMs: MINT_TIMEOUT_MS, intervalMs: 10_000 },
+  );
 }
 
-interface FaucetResponse {
-  success: boolean;
-  coin?: string;
-  amount?: number;
-  error?: string;
-}
-
-async function requestFaucet(
-  nametag: string,
-  coin = "unicity",
-  amount = 100
-): Promise<FaucetResponse> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), FAUCET_TIMEOUT_MS);
-
+/** Runs a money op once; true when it is possibly committed and must converge (it is never re-issued). */
+async function moneyOpOnce(label: string, op: () => Promise<unknown>): Promise<boolean> {
   try {
-    const res = await fetch(FAUCET_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ unicityId: nametag, coin, amount }),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!res.ok) {
-      const text = await res.text();
-      return { success: false, error: `HTTP ${res.status}: ${text}` };
-    }
-
-    const data = await res.json();
-    return { success: true, ...data };
+    await op();
+    return false;
   } catch (err) {
-    clearTimeout(timeoutId);
-    return { success: false, error: String(err) };
+    if (!isPossiblyCommittedSendOutcome(err)) throw err;
+    console.log(`[e2e] ${label} possibly committed (${String(err)}); waiting for it to converge`);
+    return true;
   }
 }
 
-function waitForTokens(
-  sphere: Sphere,
-  minCount: number,
-  timeoutMs = TOKEN_RECEIVE_TIMEOUT_MS
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const startTime = Date.now();
+describe("testnet2 wallets: DMs, mint, transfers, payment requests", () => {
+  let alice: Party | undefined;
+  let bob: Party | undefined;
+  let uct: { coinId: string; decimals: number } | undefined;
+  const incomingAtBob: IncomingTransfer[] = [];
+  const requestsAtAlice: PaymentRequestView[] = [];
+  const offs: Array<() => void> = [];
 
-    const check = async () => {
-      const tokens = sphere.payments.getTokens();
-      if (tokens.length >= minCount) {
-        resolve();
-        return;
-      }
+  const need = <T>(v: T | undefined, what: string): T => {
+    if (v === undefined) throw new Error(`precondition failed: ${what} (see the earlier failure)`);
+    return v;
+  };
 
-      if (Date.now() - startTime > timeoutMs) {
-        reject(new Error(`Timeout: Expected ${minCount} tokens, got ${tokens.length}`));
-        return;
-      }
-
-      setTimeout(check, 2000);
-    };
-
-    check();
-  });
-}
-
-async function cleanup(ctx: WalletContext | null): Promise<void> {
-  if (!ctx) return;
-  try {
-    await ctx.sphere.destroy();
-  } catch { /* ignore */ }
-  try {
-    rmSync(ctx.dirs.base, { recursive: true, force: true });
-  } catch { /* ignore */ }
-}
-
-// =============================================================================
-// DM Tests - Each test creates fresh wallets
-// =============================================================================
-
-describe("Unicity E2E: DM Operations", () => {
-  let alice: WalletContext | null = null;
-  let bob: WalletContext | null = null;
-
-  afterEach(async () => {
-    await cleanup(alice);
-    await cleanup(bob);
-    alice = null;
-    bob = null;
-  });
-
-  it("sends DM from Alice to Bob by nametag", async () => {
-    const aliceTag = randomNametag("alice");
-    const bobTag = randomNametag("bob");
-
-    alice = await createWallet("alice", aliceTag);
-    bob = await createWallet("bob", bobTag);
-
-    expect(alice.sphere.identity?.nametag).toBe(aliceTag);
-    expect(bob.sphere.identity?.nametag).toBe(bobTag);
-
-    // Subscribe Bob first, wait for relay subscription
-    const dmPromise = waitForDM(bob.sphere);
-    await new Promise((r) => setTimeout(r, RELAY_SETTLE_MS));
-
-    const text = `Hello Bob! ${Date.now()}`;
-    await alice.sphere.communications.sendDM(`@${bobTag}`, text);
-
-    const msg = await dmPromise;
-    expect(msg.content).toBe(text);
-    expect(msg.senderNametag).toBe(aliceTag);
-  }, 45000);
-
-  it("sends DM from Bob to Alice by nametag", async () => {
-    const aliceTag = randomNametag("alice");
-    const bobTag = randomNametag("bob");
-
-    alice = await createWallet("alice", aliceTag);
-    bob = await createWallet("bob", bobTag);
-
-    // Subscribe Alice first
-    const dmPromise = waitForDM(alice.sphere);
-    await new Promise((r) => setTimeout(r, RELAY_SETTLE_MS));
-
-    const text = `Hello Alice! ${Date.now()}`;
-    await bob.sphere.communications.sendDM(`@${aliceTag}`, text);
-
-    const msg = await dmPromise;
-    expect(msg.content).toBe(text);
-    expect(msg.senderNametag).toBe(bobTag);
-  }, 45000);
-
-  it("sends DM by pubkey (32-byte x-only)", async () => {
-    alice = await createWallet("alice");
-    bob = await createWallet("bob");
-
-    // Subscribe Bob first
-    const dmPromise = waitForDM(bob.sphere);
-    await new Promise((r) => setTimeout(r, RELAY_SETTLE_MS));
-
-    // Get 32-byte x-only pubkey (chainPubkey is 33-byte compressed)
-    let bobPubkey = bob.sphere.identity!.chainPubkey;
-    if (bobPubkey.length === 66 && (bobPubkey.startsWith("02") || bobPubkey.startsWith("03"))) {
-      bobPubkey = bobPubkey.slice(2);
+  async function party(label: string): Promise<Party> {
+    const dir = tempDir(label);
+    const nametag = randomNametag(`e2e${label[0]}`);
+    try {
+      const { sphere } = await openTestWallet({ label, dataDir: dir, nametag, payments: true });
+      const chainPubkey = sphere.identity!.chainPubkey;
+      return { label, sphere, dir, nametag, chainPubkey, xOnly: toXOnly(chainPubkey)!, inbox: new DmInbox(sphere) };
+    } catch (err) {
+      removeDir(dir);
+      throw err;
     }
+  }
 
-    const text = `Direct pubkey message ${Date.now()}`;
-    await alice.sphere.communications.sendDM(bobPubkey, text);
+  beforeAll(async () => {
+    alice = await party("alice");
+    bob = await party("bob");
+    offs.push(bob.sphere.on("transfer:incoming", (t) => incomingAtBob.push(t)));
+    offs.push(alice.sphere.on("payment_request:incoming", (r) => requestsAtAlice.push(r)));
+  }, 180_000);
 
-    const msg = await dmPromise;
-    expect(msg.content).toBe(text);
-  }, 45000);
+  afterAll(async () => {
+    for (const off of offs.splice(0)) off();
+    alice?.inbox.close();
+    bob?.inbox.close();
+    await destroyAll([alice?.sphere, bob?.sphere]);
+    TokenRegistry.destroy();
+    removeDir(alice?.dir);
+    removeDir(bob?.dir);
+  }, 60_000);
 
-  it("completes bidirectional DM round-trip", async () => {
-    const aliceTag = randomNametag("alice");
-    const bobTag = randomNametag("bob");
-
-    alice = await createWallet("alice", aliceTag);
-    bob = await createWallet("bob", bobTag);
-
-    // Wait for relay setup
-    await new Promise((r) => setTimeout(r, RELAY_SETTLE_MS));
-
-    // Alice -> Bob
-    const bobDmPromise = waitForDM(bob.sphere);
-    await new Promise((r) => setTimeout(r, RELAY_SETTLE_MS));
-
-    const msg1 = `Round-trip A->B ${Date.now()}`;
-    await alice.sphere.communications.sendDM(`@${bobTag}`, msg1);
-
-    const received1 = await bobDmPromise;
-    expect(received1.content).toBe(msg1);
-
-    // Wait for subscription state to settle before second exchange
-    await new Promise((r) => setTimeout(r, RELAY_SETTLE_MS));
-
-    // Bob -> Alice
-    const aliceDmPromise = waitForDM(alice.sphere);
-    await new Promise((r) => setTimeout(r, RELAY_SETTLE_MS));
-
-    const msg2 = `Round-trip B->A ${Date.now()}`;
-    await bob.sphere.communications.sendDM(`@${aliceTag}`, msg2);
-
-    const received2 = await aliceDmPromise;
-    expect(received2.content).toBe(msg2);
-  }, 120000);
-});
-
-// =============================================================================
-// Token Tests - Faucet and transfers
-// =============================================================================
-
-describe("Unicity E2E: Token Operations", () => {
-  let alice: WalletContext | null = null;
-  let bob: WalletContext | null = null;
-
-  afterEach(async () => {
-    await cleanup(alice);
-    await cleanup(bob);
-    alice = null;
-    bob = null;
+  it("both wallets are composed with payments and own their nametags", () => {
+    const a = need(alice, "alice wallet");
+    const b = need(bob, "bob wallet");
+    for (const p of [a, b]) {
+      expect(p.sphere.hasPayments).toBe(true);
+      expect(p.sphere.identity?.nametag).toBe(p.nametag);
+      expect(p.sphere.hasNametag()).toBe(true);
+      expect(p.sphere.identity?.directAddress?.startsWith("DIRECT://")).toBe(true);
+    }
   });
 
-  it("creates wallet with nametag token minted", async () => {
-    alice = await createWallet("alice");
+  it("delivers a DM by @nametag with the sender's authenticated x-only key", async () => {
+    const a = need(alice, "alice wallet");
+    const b = need(bob, "bob wallet");
+    const text = `A->B by nametag ${nonce()}`;
+    await a.sphere.communications.sendDM(`@${b.nametag}`, text);
 
-    expect(alice.sphere.identity?.nametag).toBeTruthy();
-    expect(alice.sphere.identity?.chainPubkey).toBeTruthy();
+    const msg = await b.inbox.waitFor({ from: a.xOnly, content: text }, DM_TIMEOUT_MS, "Alice's DM at Bob");
+    expect(toXOnly(msg.senderPubkey)).toBe(a.xOnly);
+  }, DM_TIMEOUT_MS + 15_000);
 
-    // Nametag token should have been minted (check via hasNametag)
-    const hasNametag = alice.sphere.payments.hasNametag();
-    expect(hasNametag).toBe(true);
-  }, 60000);
+  it("replies to the authenticated sender key (round trip by x-only pubkey)", async () => {
+    const a = need(alice, "alice wallet");
+    const b = need(bob, "bob wallet");
+    const ping = `A->B ping ${nonce()}`;
+    await a.sphere.communications.sendDM(b.xOnly, ping);
+    const got = await b.inbox.waitFor({ from: a.xOnly, content: ping }, DM_TIMEOUT_MS, "ping at Bob");
 
-  it("requests funds from faucet", async () => {
-    alice = await createWallet("alice");
+    const pong = `B->A pong ${nonce()}`;
+    await b.sphere.communications.sendDM(toXOnly(got.senderPubkey)!, pong);
+    // Alice's own ping is replayed into her subscription too; the inbox drops own messages and matches content.
+    const back = await a.inbox.waitFor({ from: b.xOnly, content: pong }, DM_TIMEOUT_MS, "pong at Alice");
+    expect(back.content).toBe(pong);
+  }, 2 * DM_TIMEOUT_MS + 15_000);
 
-    const response = await requestFaucet(alice.nametag, "unicity", 100);
+  it("self-mints UCT on testnet2 (no faucet)", async () => {
+    const a = need(alice, "alice wallet");
+    expect(await TokenRegistry.waitForReady(30_000)).toBe(true);
+    const coinId = getCoinIdBySymbol("UCT");
+    expect(coinId, "UCT in the testnet2 registry").toMatch(/^[0-9a-f]{64}$/);
+    uct = { coinId: coinId!, decimals: getTokenDecimals(coinId!) };
 
-    console.log(`[E2E] Faucet response:`, response);
-    expect(response.success).toBe(true);
-  }, 45000);
+    const amount = parseTokenAmount("10", uct.decimals);
+    await mintOnce(a, uct.coinId, amount);
+    expect(balanceOf(a.sphere, uct.coinId)).toBe(amount);
+    const [asset] = await a.sphere.payments.assets(uct.coinId);
+    expect(asset?.totalAmount).toBe(amount.toString());
+  }, MINT_TIMEOUT_MS + 60_000);
 
-  it("receives tokens after faucet request", async () => {
-    alice = await createWallet("alice");
+  it("sends part of a token; the recipient receives it from the sender's chain key and change returns", async () => {
+    const a = need(alice, "alice wallet");
+    const b = need(bob, "bob wallet");
+    const coin = need(uct, "minted UCT");
+    const sent = parseTokenAmount("3", coin.decimals);
+    const start = balanceOf(a.sphere, coin.coinId);
 
-    // Request funds
-    const faucetRes = await requestFaucet(alice.nametag, "unicity", 100);
-    expect(faucetRes.success).toBe(true);
+    const converging = await moneyOpOnce("send", () =>
+      a.sphere.payments.send({ recipient: b.chainPubkey, amount: sent.toString(), coinId: coin.coinId, memo: `e2e ${nonce()}` }),
+    );
 
-    // Wait for tokens to arrive
-    await waitForTokens(alice.sphere, 1, TOKEN_RECEIVE_TIMEOUT_MS);
-
-    const tokens = alice.sphere.payments.getTokens();
-    expect(tokens.length).toBeGreaterThan(0);
-    console.log(`[E2E] Alice received ${tokens.length} token(s)`);
-  }, 90000);
-
-  it("transfers token from Alice to Bob", async () => {
-    const aliceTag = randomNametag("alice");
-    const bobTag = randomNametag("bob");
-
-    alice = await createWallet("alice", aliceTag);
-    bob = await createWallet("bob", bobTag);
-
-    // Request funds for Alice
-    const faucetRes = await requestFaucet(aliceTag, "unicity", 100);
-    expect(faucetRes.success).toBe(true);
-
-    // Wait for Alice to receive tokens
-    await waitForTokens(alice.sphere, 1, TOKEN_RECEIVE_TIMEOUT_MS);
-
-    const aliceTokens = alice.sphere.payments.getTokens();
-    expect(aliceTokens.length).toBeGreaterThan(0);
-
-    // Transfer to Bob
-    const tokenToSend = aliceTokens[0];
-    console.log(`[E2E] Transferring token ${tokenToSend.coinId} (${tokenToSend.amount}) to @${bobTag}`);
-
-    await alice.sphere.payments.send({
-      recipient: `@${bobTag}`,
-      amount: tokenToSend.amount,
-      coinId: tokenToSend.coinId,
+    const atBob = await waitForBalance(
+      b,
+      coin.coinId,
+      `Bob to hold ${toHumanReadable(sent, coin.decimals)} UCT`,
+      (bal) => bal >= sent,
+      converging ? a : undefined,
+    );
+    expect(atBob).toBe(sent);
+    // The receive drain stores the token before it announces it, so the balance can lead the event briefly.
+    const arrival = await pollUntil("transfer:incoming at Bob", () => incomingAtBob.find((t) => t.tokens.some((tok) => tok.coinId === coin.coinId)), {
+      timeoutMs: 30_000,
+      intervalMs: 500,
     });
+    expect(toXOnly(arrival.senderPubkey)).toBe(a.xOnly);
 
-    // Wait for Bob to receive
-    await waitForTokens(bob.sphere, 1, TOKEN_RECEIVE_TIMEOUT_MS);
+    const change = await waitForBalance(a, coin.coinId, "Alice's change to land", (bal) => bal === start - sent, converging ? a : undefined);
+    expect(change).toBe(start - sent);
+  }, 2 * SETTLE_TIMEOUT_MS + 60_000);
 
-    const bobTokens = bob.sphere.payments.getTokens();
-    expect(bobTokens.length).toBeGreaterThan(0);
-    console.log(`[E2E] Bob received ${bobTokens.length} token(s)`);
-  }, 180000);
+  it("creates a payment request, lists it at the payer and settles it with pay()", async () => {
+    const a = need(alice, "alice wallet");
+    const b = need(bob, "bob wallet");
+    const coin = need(uct, "minted UCT");
+    const amount = parseTokenAmount("1", coin.decimals);
+    const memo = `e2e invoice ${nonce()}`;
+    const bobBefore = balanceOf(b.sphere, coin.coinId);
+
+    const created = await b.sphere.payments.requests.create(a.chainPubkey, { coinId: coin.coinId, amount: amount.toString(), memo });
+    expect(created.error).toBeUndefined();
+    expect(created.success).toBe(true);
+    const requestId = created.requestId!;
+    expect(requestId).toBeTruthy();
+
+    const view = await pollUntil(
+      `request ${requestId} at Alice`,
+      () => a.sphere.payments.requests.list().find((r) => r.id === requestId),
+      { timeoutMs: REQUEST_ARRIVAL_TIMEOUT_MS, intervalMs: 3_000 },
+    );
+    expect(view.requestId).toBe(requestId);
+    expect(view.status).toBe("pending");
+    expect(toXOnly(view.senderPubkey)).toBe(b.xOnly);
+    expect(view.coinId).toBe(coin.coinId);
+    expect(view.amount).toBe(amount.toString());
+    expect(view.message).toBe(memo);
+    expect(requestsAtAlice.some((r) => r.id === requestId), "payment_request:incoming at Alice").toBe(true);
+
+    const converging = await moneyOpOnce("pay", () => a.sphere.payments.requests.pay(requestId));
+
+    await waitForBalance(b, coin.coinId, "Bob to receive the requested amount", (bal) => bal === bobBefore + amount, converging ? a : undefined);
+    // A deferred 'paid' respond leaves the request 'settling' until a convergence pass retries it; resumeNow() runs one.
+    const settled = await pollUntil(
+      `request ${requestId} to be paid`,
+      async () => {
+        const view = a.sphere.payments.requests.list().find((r) => r.id === requestId);
+        if (view?.status === "paid") return view;
+        await a.sphere.payments.resumeNow().catch(() => undefined);
+        return null;
+      },
+      { timeoutMs: SETTLE_TIMEOUT_MS, intervalMs: 5_000 },
+    );
+    expect(settled.status).toBe("paid");
+  }, REQUEST_ARRIVAL_TIMEOUT_MS + 2 * SETTLE_TIMEOUT_MS + 60_000);
 });

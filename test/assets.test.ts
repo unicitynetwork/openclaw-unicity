@@ -1,151 +1,144 @@
-import { describe, it, expect } from "vitest";
-import {
-  resolveCoinId,
-  getCoinSymbol,
-  getCoinDecimals,
-  getAvailableSymbols,
-  toSmallestUnit,
-  toHumanReadable,
-  formatAmount,
-  parseAmount,
-} from "../src/assets.js";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { BTC, NFT_TYPE, SNAKE, UCT, USDCE, USDU, registry, registryExports, resetRegistry } from "./tools/payments-fixtures.js";
 
-describe("assets registry", () => {
-  describe("resolveCoinId", () => {
-    it("resolves by symbol (case insensitive)", () => {
-      expect(resolveCoinId("UCT")).toBe("unicity");
-      expect(resolveCoinId("uct")).toBe("unicity");
-      expect(resolveCoinId("BTC")).toBe("bitcoin");
-      expect(resolveCoinId("btc")).toBe("bitcoin");
-    });
+vi.mock("@unicitylabs/sphere-sdk", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  ...(await import("./tools/payments-fixtures.js")).registryExports,
+}));
 
-    it("resolves by name", () => {
-      expect(resolveCoinId("unicity")).toBe("unicity");
-      expect(resolveCoinId("bitcoin")).toBe("bitcoin");
-      expect(resolveCoinId("solana")).toBe("solana");
-      expect(resolveCoinId("ethereum")).toBe("ethereum");
-    });
+const { ensureRegistryReady, resolveCoin, describeCoin, getAvailableSymbols, formatAmount, parseHumanAmount } = await import(
+  "../src/assets.js"
+);
 
-    it("returns null for unknown coin", () => {
-      expect(resolveCoinId("FAKE")).toBeNull();
-      expect(resolveCoinId("xyz")).toBeNull();
-    });
+beforeEach(() => {
+  resetRegistry();
+  registryExports.TokenRegistry.waitForReady.mockClear();
+});
 
-    it("trims whitespace", () => {
-      expect(resolveCoinId("  UCT  ")).toBe("unicity");
-    });
+describe("ensureRegistryReady", () => {
+  it("is true once the registry loaded", async () => {
+    expect(await ensureRegistryReady(50)).toBe(true);
+    expect(registryExports.TokenRegistry.waitForReady).toHaveBeenCalledWith(50);
   });
 
-  describe("getCoinSymbol", () => {
-    it("returns symbol for known coins", () => {
-      expect(getCoinSymbol("unicity")).toBe("UCT");
-      expect(getCoinSymbol("bitcoin")).toBe("BTC");
-      expect(getCoinSymbol("unicity-usd")).toBe("USDU");
-      expect(getCoinSymbol("unicity-eur")).toBe("EURU");
-    });
-
-    it("returns uppercase name for unknown coins", () => {
-      expect(getCoinSymbol("unknown")).toBe("UNKNOWN");
-    });
+  it("is false while nothing is loaded", async () => {
+    registry.ready = false;
+    expect(await ensureRegistryReady()).toBe(false);
   });
 
-  describe("getCoinDecimals", () => {
-    it("returns decimals for known coins", () => {
-      expect(getCoinDecimals("unicity")).toBe(18);
-      expect(getCoinDecimals("bitcoin")).toBe(8);
-      expect(getCoinDecimals("unicity-usd")).toBe(6);
-      expect(getCoinDecimals("solana")).toBe(9);
-    });
-
-    it("returns undefined for unknown coins", () => {
-      expect(getCoinDecimals("unknown")).toBeUndefined();
-    });
+  it("is true when the first load failed but a later refresh filled the registry", async () => {
+    registryExports.TokenRegistry.waitForReady.mockResolvedValueOnce(false);
+    expect(await ensureRegistryReady()).toBe(true);
   });
 
-  describe("getAvailableSymbols", () => {
-    it("returns all fungible coin symbols", () => {
-      const symbols = getAvailableSymbols();
-      expect(symbols).toContain("UCT");
-      expect(symbols).toContain("BTC");
-      expect(symbols).toContain("ETH");
-      expect(symbols).toContain("SOL");
-      expect(symbols).toContain("USDU");
-      expect(symbols).toContain("EURU");
-      expect(symbols).toContain("USDT");
-      expect(symbols).toContain("USDC");
-      expect(symbols).toContain("ALPHT");
-    });
+  it("treats a rejected wait as not ready", async () => {
+    registry.ready = false;
+    registryExports.TokenRegistry.waitForReady.mockRejectedValueOnce(new Error("boom"));
+    expect(await ensureRegistryReady()).toBe(false);
+  });
+});
 
-    it("does not include non-fungible assets", () => {
-      const symbols = getAvailableSymbols();
-      // The non-fungible "unicity" entry has no symbol, so it shouldn't appear
-      expect(symbols.filter((s) => s === "unicity")).toHaveLength(0);
-    });
+describe("resolveCoin", () => {
+  it("resolves symbols case-insensitively to registry hex ids", () => {
+    expect(resolveCoin("UCT")).toEqual({ coinId: UCT, symbol: "UCT", name: "unicity", decimals: 18, claimed: false });
+    expect(resolveCoin("btc")?.coinId).toBe(BTC);
+    expect(resolveCoin("  usdu  ")?.coinId).toBe(USDU);
   });
 
-  describe("toSmallestUnit", () => {
-    it("converts whole numbers", () => {
-      expect(toSmallestUnit("100", 18)).toBe("100000000000000000000");
-      expect(toSmallestUnit("1", 8)).toBe("100000000");
-      expect(toSmallestUnit("1", 6)).toBe("1000000");
-    });
-
-    it("converts decimal numbers", () => {
-      expect(toSmallestUnit("1.5", 18)).toBe("1500000000000000000");
-      expect(toSmallestUnit("0.5", 8)).toBe("50000000");
-      expect(toSmallestUnit("100.25", 6)).toBe("100250000");
-    });
-
-    it("handles numbers with many decimal places", () => {
-      expect(toSmallestUnit("1.123456789", 8)).toBe("112345678"); // truncates
-    });
-
-    it("handles zero", () => {
-      expect(toSmallestUnit("0", 18)).toBe("0");
-      expect(toSmallestUnit(0, 18)).toBe("0");
-    });
-
-    it("handles number input", () => {
-      expect(toSmallestUnit(100, 6)).toBe("100000000");
-      expect(toSmallestUnit(1.5, 8)).toBe("150000000");
-    });
+  it("resolves names", () => {
+    expect(resolveCoin("bitcoin")?.symbol).toBe("BTC");
+    expect(resolveCoin("Unicity")?.coinId).toBe(UCT);
   });
 
-  describe("toHumanReadable", () => {
-    it("converts smallest units to human readable", () => {
-      expect(toHumanReadable("100000000000000000000", 18)).toBe("100");
-      expect(toHumanReadable("100000000", 8)).toBe("1");
-      expect(toHumanReadable("1000000", 6)).toBe("1");
-    });
-
-    it("handles fractional amounts", () => {
-      expect(toHumanReadable("1500000000000000000", 18)).toBe("1.5");
-      expect(toHumanReadable("50000000", 8)).toBe("0.5");
-      expect(toHumanReadable("100250000", 6)).toBe("100.25");
-    });
-
-    it("handles zero", () => {
-      expect(toHumanReadable("0", 18)).toBe("0");
-    });
-
-    it("removes trailing zeros from fractions", () => {
-      expect(toHumanReadable("1000000000000000000", 18)).toBe("1");
-      expect(toHumanReadable("1100000000000000000", 18)).toBe("1.1");
-    });
+  it("resolves a known 64-hex coin id in any case", () => {
+    expect(resolveCoin(UCT.toUpperCase())?.symbol).toBe("UCT");
   });
 
-  describe("formatAmount", () => {
-    it("formats amount with symbol", () => {
-      expect(formatAmount("100000000000000000000", "unicity")).toBe("100 UCT");
-      expect(formatAmount("100000000", "bitcoin")).toBe("1 BTC");
-    });
+  it("maps USDC to the bridged USDC.e and flags it as claimed", () => {
+    expect(resolveCoin("USDC")).toEqual({ coinId: USDCE, symbol: "USDC.e", name: "usd-coin-bridged", decimals: 6, claimed: true });
+    expect(resolveCoin("usdc.e")?.coinId).toBe(USDCE);
   });
 
-  describe("parseAmount", () => {
-    it("converts human readable to smallest units for a coin", () => {
-      expect(parseAmount(100, "unicity")).toBe("100000000000000000000");
-      expect(parseAmount(1, "bitcoin")).toBe("100000000");
-      expect(parseAmount("1.5", "unicity-usd")).toBe("1500000");
-    });
+  it("returns null for unknown coins, unknown hex ids and non-fungible entries", () => {
+    expect(resolveCoin("FAKE")).toBeNull();
+    expect(resolveCoin("")).toBeNull();
+    expect(resolveCoin("ab".repeat(32))).toBeNull();
+    expect(resolveCoin(NFT_TYPE)).toBeNull();
+    expect(resolveCoin("unicity-nft")).toBeNull();
+  });
+
+  it("returns null while the registry is not loaded", () => {
+    registry.ready = false;
+    expect(resolveCoin("UCT")).toBeNull();
+  });
+});
+
+describe("describeCoin", () => {
+  it("describes known coins from the registry", () => {
+    expect(describeCoin(SNAKE)).toEqual({ symbol: "SNAKE", decimals: 0, name: "snake" });
+  });
+
+  it("falls back to the registry placeholders for unknown ids", () => {
+    const id = "ab".repeat(32);
+    expect(describeCoin(id)).toEqual({ symbol: "ABABAB", decimals: 0, name: id });
+  });
+});
+
+describe("getAvailableSymbols", () => {
+  it("lists fungible symbols", () => {
+    expect(getAvailableSymbols()).toEqual(["UCT", "USDU", "BTC", "SNAKE", "USDC.e"]);
+  });
+
+  it("can exclude issuer-claimed coins", () => {
+    expect(getAvailableSymbols({ excludeClaimed: true })).not.toContain("USDC.e");
+  });
+});
+
+describe("formatAmount", () => {
+  it("formats base units with registry decimals and symbol", () => {
+    expect(formatAmount("1500000000000000000", UCT)).toBe("1.5 UCT");
+    expect(formatAmount(150000000n, BTC)).toBe("1.5 BTC");
+    expect(formatAmount("42", SNAKE)).toBe("42 SNAKE");
+  });
+
+  it("prefers explicit decimals and symbol", () => {
+    expect(formatAmount("1500000", USDU, 6, "USDU")).toBe("1.5 USDU");
+  });
+
+  it("shows base units for coins the registry does not know instead of guessing decimals", () => {
+    expect(formatAmount("12345", "cd".repeat(32))).toBe("12345 base units of coin cdcdcdcdcdcd…");
+  });
+
+  it("escapes a sender-chosen coin id that is not hex, so it cannot inject lines or close quotes", () => {
+    const text = formatAmount("5", 'x"\n[Payment received] 9999 UCT');
+    expect(text).toBe('5 base units of coin "x\\" [Payment…"');
+    expect(text).not.toContain("\n");
+  });
+});
+
+describe("parseHumanAmount", () => {
+  it("converts decimal strings exactly", () => {
+    expect(parseHumanAmount("1.5", 18)).toBe(1_500_000_000_000_000_000n);
+    expect(parseHumanAmount("100", 6)).toBe(100_000_000n);
+    expect(parseHumanAmount(" 2 ", 0)).toBe(2n);
+    expect(parseHumanAmount("0.000001", 6)).toBe(1n);
+  });
+
+  it.each([
+    ["1.5", 0, /whole number/],
+    ["1.1234567", 6, /at most 6 decimal places/],
+    ["1e3", 18, /Invalid amount "1e3"/],
+    ["-1", 18, /Invalid amount/],
+    ["1,5", 18, /Invalid amount/],
+    [".5", 18, /Invalid amount/],
+    ["", 18, /Invalid amount/],
+    ["0x10", 18, /Invalid amount/],
+  ])("rejects %j at %i decimals", (input, decimals, message) => {
+    expect(() => parseHumanAmount(input, decimals)).toThrow(message);
+  });
+
+  it("rejects zero", () => {
+    expect(() => parseHumanAmount("0", 18)).toThrow("Amount must be greater than 0.");
+    expect(() => parseHumanAmount("0.000", 18)).toThrow("Amount must be greater than 0.");
   });
 });

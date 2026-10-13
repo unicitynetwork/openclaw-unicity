@@ -1,61 +1,68 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockSendMessage = vi.fn();
-const mockGetSphere = vi.fn();
+const mockGetSphereOrNull = vi.fn();
 
-vi.mock("../../src/sphere.js", () => ({
-  getSphere: () => mockGetSphere(),
-}));
+vi.mock("../../src/sphere.js", () => ({ getSphereOrNull: () => mockGetSphereOrNull() }));
+vi.mock("../../src/assets.js", () => ({ formatAmount: vi.fn() }));
 
 const { sendGroupMessageTool } = await import("../../src/tools/send-group-message.js");
+
+const text = (r: { content: Array<{ text: string }> }) => r.content[0].text;
+const GROUP_ID = "trading-floor-0123456789abcdef";
 
 describe("sendGroupMessageTool", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetSphere.mockReturnValue({
-      groupChat: { sendMessage: mockSendMessage },
-    });
+    mockGetSphereOrNull.mockReturnValue({ groupChat: { sendMessage: mockSendMessage } });
   });
 
-  it("has correct name and description", () => {
+  it("has the right name and an owner-only description", () => {
     expect(sendGroupMessageTool.name).toBe("unicity_send_group_message");
-    expect(sendGroupMessageTool.description).toContain("group chat");
+    expect(sendGroupMessageTool.description).toContain("Owner only (enforced by the plugin)");
   });
 
-  it("sends a message to a group", async () => {
-    mockSendMessage.mockResolvedValue({ id: "msg-1" });
+  it("sends the message (optionally as a reply) and reports its id", async () => {
+    mockSendMessage.mockResolvedValue({ id: "evt-1", groupId: GROUP_ID });
+    const result = await sendGroupMessageTool.execute("c1", { groupId: GROUP_ID, message: "gm", replyToId: "evt-0" });
+    expect(mockSendMessage).toHaveBeenCalledWith(GROUP_ID, "gm", "evt-0");
+    expect(text(result)).toBe(`Message sent to group ${GROUP_ID} (id: evt-1)`);
+  });
 
-    const result = await sendGroupMessageTool.execute("call-1", {
-      groupId: "grp-1",
-      message: "Hello group!",
+  it("omits an empty replyToId", async () => {
+    mockSendMessage.mockResolvedValue({ groupId: "grp1" });
+    const result = await sendGroupMessageTool.execute("c2", { groupId: "grp1", message: "gm", replyToId: " " });
+    expect(mockSendMessage).toHaveBeenCalledWith("grp1", "gm", undefined);
+    expect(text(result)).toBe("Message sent to group grp1");
+  });
+
+  it("treats a null SDK result (not joined / rejected) as a failure", async () => {
+    mockSendMessage.mockResolvedValue(null);
+    const result = await sendGroupMessageTool.execute("c3", { groupId: "grp1", message: "gm" });
+    expect(result.details).toMatchObject({ status: "error", code: "send_failed" });
+    expect(text(result)).toContain("not a member");
+  });
+
+  it("returns an error result when the SDK throws", async () => {
+    mockSendMessage.mockRejectedValue(new Error("relay down"));
+    const result = await sendGroupMessageTool.execute("c4", { groupId: "grp1", message: "gm" });
+    expect(result.details).toMatchObject({ status: "error", code: "send_failed" });
+  });
+
+  it("rejects invalid group ids", async () => {
+    const result = await sendGroupMessageTool.execute("c5", { groupId: "@alice x", message: "gm" });
+    expect(result.details).toMatchObject({ status: "error", code: "invalid_group_id" });
+    expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+
+  it("reports disabled group chat and a missing wallet", async () => {
+    mockGetSphereOrNull.mockReturnValue({ groupChat: null });
+    expect((await sendGroupMessageTool.execute("c6", { groupId: "grp1", message: "x" })).details).toMatchObject({
+      code: "group_chat_disabled",
     });
-
-    expect(mockSendMessage).toHaveBeenCalledWith("grp-1", "Hello group!", undefined);
-    expect(result.content[0].text).toContain("grp-1");
-    expect(result.content[0].text).toContain("msg-1");
-  });
-
-  it("sends a reply to a specific message", async () => {
-    mockSendMessage.mockResolvedValue({ id: "msg-2" });
-
-    const result = await sendGroupMessageTool.execute("call-2", {
-      groupId: "grp-1",
-      message: "Reply here",
-      replyToId: "msg-0",
+    mockGetSphereOrNull.mockReturnValue(null);
+    expect((await sendGroupMessageTool.execute("c7", { groupId: "grp1", message: "x" })).details).toMatchObject({
+      code: "wallet_not_ready",
     });
-
-    expect(mockSendMessage).toHaveBeenCalledWith("grp-1", "Reply here", "msg-0");
-    expect(result.content[0].text).toContain("msg-2");
-  });
-
-  it("propagates sendMessage errors", async () => {
-    mockSendMessage.mockRejectedValue(new Error("group not found"));
-
-    await expect(
-      sendGroupMessageTool.execute("call-3", {
-        groupId: "grp-bad",
-        message: "test",
-      }),
-    ).rejects.toThrow("group not found");
   });
 });

@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "../..",
+    "noEmit": true,
+    "allowJs": true,
+    "checkJs": true
+  },
+  "include": ["**/*.ts", "docker/*.mjs", "../../vitest.e2e.config.ts"]
+}

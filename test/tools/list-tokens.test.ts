@@ -1,61 +1,71 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { BTC, UCT, USDCE, makePayments, makeSphere, resetRegistry, text, wallet, type FakePayments } from "./payments-fixtures.js";
 
-const mockGetTokens = vi.fn();
-const mockGetSphere = vi.fn();
-const mockGetCoinDecimals = vi.fn();
-const mockToHumanReadable = vi.fn();
-
-vi.mock("../../src/sphere.js", () => ({
-  getSphere: () => mockGetSphere(),
+vi.mock("@unicitylabs/sphere-sdk", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  ...(await import("./payments-fixtures.js")).registryExports,
 }));
-
-vi.mock("../../src/assets.js", () => ({
-  getCoinDecimals: (name: string) => mockGetCoinDecimals(name),
-  toHumanReadable: (amount: string, decimals: number) => mockToHumanReadable(amount, decimals),
-}));
+vi.mock("../../src/storage.js", async () => (await import("./payments-fixtures.js")).storageExports);
+vi.mock("../../src/sphere.js", async () => {
+  const f = await import("./payments-fixtures.js");
+  return { getSphereOrNull: () => f.wallet.sphere };
+});
 
 const { listTokensTool } = await import("../../src/tools/list-tokens.js");
 
-describe("listTokensTool", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockGetSphere.mockReturnValue({
-      payments: { getTokens: mockGetTokens },
+const token = (id: string, coinId: string, symbol: string, decimals: number, amount: string, status: string, extra?: object) => ({
+  id, coinId, symbol, name: symbol, decimals, amount, status, createdAt: Date.UTC(2026, 9, 1), updatedAt: 0, ...extra,
+});
+
+let payments: FakePayments;
+
+beforeEach(() => {
+  resetRegistry();
+  payments = makePayments();
+  const held = [
+    token("a".repeat(64), UCT, "UCT", 18, "1500000000000000000", "confirmed"),
+    token("b".repeat(64), BTC, "BTC", 8, "50000000", "transferring", { suspectedSpent: true }),
+  ];
+  payments.tokens.mockImplementation((filter?: { coinId: string }) => held.filter((t) => !filter || t.coinId === filter.coinId));
+  wallet.sphere = makeSphere(payments);
+});
+
+describe("unicity_list_tokens", () => {
+  it("only offers the statuses the SDK produces", () => {
+    const schema = listTokensTool.parameters as { properties: { status: { anyOf: Array<{ const: string }> } } };
+    expect(schema.properties.status.anyOf.map((s) => s.const)).toEqual(["confirmed", "transferring"]);
+  });
+
+  it("lists tokens with their own decimals", async () => {
+    const out = text(await listTokensTool.execute("call", {}));
+    expect(payments.tokens).toHaveBeenCalledWith(undefined);
+    expect(out).toBe(
+      "Found 2 tokens:\n" +
+        "aaaaaaaaaaaa… | 1.5 UCT | confirmed | 2026-10-01T00:00:00.000Z\n" +
+        "bbbbbbbbbbbb… | 0.5 BTC | transferring (suspected spent) | 2026-10-01T00:00:00.000Z",
+    );
+  });
+
+  it("filters by coin (hex id) and status", async () => {
+    const out = text(await listTokensTool.execute("call", { coin: "bitcoin", status: "transferring" }));
+    expect(payments.tokens).toHaveBeenCalledWith({ coinId: BTC });
+    expect(out).toContain("0.5 BTC");
+    expect(out).not.toContain("UCT");
+    expect(payments.unverifiedTokens).not.toHaveBeenCalled();
+  });
+
+  it("appends unverified claimed-coin tokens when not filtering by status", async () => {
+    payments.tokens.mockReturnValue([]);
+    payments.unverifiedTokens.mockReturnValue([token("c".repeat(64), USDCE, "USDC.e", 6, "2000000", "confirmed")]);
+    expect(text(await listTokensTool.execute("call", {}))).toContain("2 USDC.e | unverified (not spendable)");
+  });
+
+  it("reports no matches, unknown coins and read failures", async () => {
+    expect(text(await listTokensTool.execute("call", { status: "confirmed", coin: "SNAKE" }))).toBe("No tokens found matching the criteria.");
+    expect((await listTokensTool.execute("call", { coin: "FAKE" })).details).toMatchObject({ code: "unknown_coin" });
+    payments.tokens.mockImplementation(() => {
+      throw new Error("not started");
     });
-    mockGetCoinDecimals.mockReturnValue(0);
-    mockToHumanReadable.mockImplementation((amount: string) => amount);
-  });
-
-  it("has correct name and description", () => {
-    expect(listTokensTool.name).toBe("unicity_list_tokens");
-    expect(listTokensTool.description).toContain("token");
-  });
-
-  it("returns formatted token list", async () => {
-    mockGetTokens.mockReturnValue([
-      { id: "abcdef123456789000", coinId: "ALPHA", symbol: "ALPHA", name: "Alpha", amount: "100", status: "confirmed", createdAt: 1700000000000, updatedAt: 1700000000000 },
-    ]);
-
-    const result = await listTokensTool.execute("call-1", {});
-
-    expect(mockGetTokens).toHaveBeenCalledWith({ coinId: undefined, status: undefined });
-    expect(result.content[0].text).toContain("Found 1 token");
-    expect(result.content[0].text).toContain("100 ALPHA");
-    expect(result.content[0].text).toContain("confirmed");
-  });
-
-  it("passes filters to getTokens", async () => {
-    mockGetTokens.mockReturnValue([]);
-
-    await listTokensTool.execute("call-2", { coinId: "ALPHA", status: "confirmed" });
-
-    expect(mockGetTokens).toHaveBeenCalledWith({ coinId: "ALPHA", status: "confirmed" });
-  });
-
-  it("returns empty message when no tokens found", async () => {
-    mockGetTokens.mockReturnValue([]);
-
-    const result = await listTokensTool.execute("call-3", {});
-    expect(result.content[0].text).toContain("No tokens found");
+    expect((await listTokensTool.execute("call", {})).details).toMatchObject({ code: "tokens_unavailable" });
   });
 });

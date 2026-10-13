@@ -1,170 +1,160 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import {
+  BTC,
+  UCT,
+  ledgerEntries,
+  makePayments,
+  makeSphere,
+  registry,
+  resetRegistry,
+  resetStorage,
+  runtime,
+  storageControl,
+  text,
+  wallet,
+  type FakePayments,
+} from "./payments-fixtures.js";
 
-const mockGetSphere = vi.fn();
-const mockFetch = vi.fn();
-const mockResolveCoinId = vi.fn();
-const mockGetCoinSymbol = vi.fn();
-const mockGetAvailableSymbols = vi.fn();
-
-// Stub fetch before importing the module
-vi.stubGlobal("fetch", mockFetch);
-
-vi.mock("../../src/sphere.js", () => ({
-  getSphere: () => mockGetSphere(),
+vi.mock("@unicitylabs/sphere-sdk", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  ...(await import("./payments-fixtures.js")).registryExports,
 }));
-
-vi.mock("../../src/assets.js", () => ({
-  resolveCoinId: (input: string) => mockResolveCoinId(input),
-  getCoinSymbol: (name: string) => mockGetCoinSymbol(name),
-  getAvailableSymbols: () => mockGetAvailableSymbols(),
-}));
+vi.mock("../../src/storage.js", async () => (await import("./payments-fixtures.js")).storageExports);
+vi.mock("../../src/runtime.js", async () => (await import("./payments-fixtures.js")).runtimeExports);
+vi.mock("../../src/sphere.js", async () => {
+  const f = await import("./payments-fixtures.js");
+  return { getSphereOrNull: () => f.wallet.sphere };
+});
 
 const { topUpTool } = await import("../../src/tools/top-up.js");
 
-describe("topUpTool", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockGetSphere.mockReturnValue({
-      identity: { nametag: "@testbot", chainPubkey: "abc123" },
-    });
-    mockGetAvailableSymbols.mockReturnValue(["UCT", "BTC", "SOL", "ETH"]);
-    mockGetCoinSymbol.mockImplementation((name: string) => {
-      const symbols: Record<string, string> = {
-        unicity: "UCT",
-        bitcoin: "BTC",
-        solana: "SOL",
-        ethereum: "ETH",
-        tether: "USDT",
-        "usd-coin": "USDC",
-        "unicity-usd": "USDU",
-        "unicity-eur": "EURU",
-        alpha_test: "ALPHT",
-      };
-      return symbols[name] ?? name.toUpperCase();
-    });
+let payments: FakePayments;
+const topUp = (params: Record<string, unknown>) => topUpTool.execute("call", { coin: "UCT", amount: "100", ...params });
+
+beforeEach(() => {
+  resetRegistry();
+  resetStorage();
+  runtime.network = "testnet2";
+  payments = makePayments();
+  payments.mint.mockResolvedValue({ success: true, tokenId: "tok-1" });
+  wallet.sphere = makeSphere(payments, { networkId: 4 });
+});
+
+describe("unicity_top_up", () => {
+  it("describes minting on testnet2, run sequentially", () => {
+    expect(topUpTool.description).not.toMatch(/IsOwner/i);
+    expect(topUpTool.description).toContain("testnet2");
+    expect(topUpTool.executionMode).toBe("sequential");
   });
 
-  it("has correct name and description", () => {
-    expect(topUpTool.name).toBe("unicity_top_up");
-    expect(topUpTool.description).toContain("faucet");
-    expect(topUpTool.description).toContain("testnet");
+  it("mints the registry coin id with exact base units and needs no nametag", async () => {
+    const result = await topUp({});
+    expect(payments.mint).toHaveBeenCalledWith(UCT, 100n * 10n ** 18n);
+    expect(text(result)).toBe("Minted 100 UCT into the wallet (token tok-1).");
+    expect(result.details).toMatchObject({ outcome: "minted", tokenId: "tok-1" });
+    expect(ledgerEntries()[0]).toMatchObject({ op: "mint", state: "done" });
   });
 
-  it("requests tokens from faucet with correct parameters", async () => {
-    mockResolveCoinId.mockReturnValue("unicity");
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ success: true }),
-    });
-
-    const result = await topUpTool.execute("call-1", { coin: "UCT", amount: 100 });
-
-    expect(mockResolveCoinId).toHaveBeenCalledWith("UCT");
-    expect(mockFetch).toHaveBeenCalledWith(
-      "https://faucet.unicity.network/api/v1/faucet/request",
-      expect.objectContaining({
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ unicityId: "testbot", coin: "unicity", amount: 100 }),
-      }),
-    );
-    expect(result.content[0].text).toContain("successful");
-    expect(result.content[0].text).toContain("100 UCT");
-    expect(result.content[0].text).toContain("@testbot");
+  it("handles coins with few decimals", async () => {
+    await topUp({ coin: "btc", amount: "0.5" });
+    expect(payments.mint).toHaveBeenCalledWith(BTC, 50_000_000n);
   });
 
-  it("handles decimal amounts", async () => {
-    mockResolveCoinId.mockReturnValue("bitcoin");
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ success: true }),
-    });
-
-    await topUpTool.execute("call-2", { coin: "BTC", amount: 0.5 });
-
-    expect(mockFetch).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({
-        body: JSON.stringify({ unicityId: "testbot", coin: "bitcoin", amount: 0.5 }),
-      }),
-    );
+  it.each([
+    ["the configured network is mainnet", () => { runtime.network = "mainnet"; }],
+    ["the wallet's trust base is mainnet", () => { wallet.sphere = makeSphere(payments, { networkId: 1 }); }],
+    ["the network cannot be determined", () => { runtime.network = null; }],
+  ])("refuses when %s", async (_label, arrange) => {
+    arrange();
+    const result = await topUp({});
+    expect(result.details).toMatchObject({ status: "error", code: "mint_not_allowed" });
+    expect(payments.mint).not.toHaveBeenCalled();
   });
 
-  it("resolves coin via resolveCoinId", async () => {
-    mockResolveCoinId.mockReturnValue("solana");
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ success: true }),
-    });
-
-    await topUpTool.execute("call-3", { coin: "sol", amount: 10 });
-
-    expect(mockResolveCoinId).toHaveBeenCalledWith("sol");
-    expect(mockFetch).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({
-        body: expect.stringContaining('"coin":"solana"'),
-      }),
-    );
+  it("refuses issuer-claimed coins (USDC -> USDC.e)", async () => {
+    const result = await topUp({ coin: "USDC" });
+    expect(result.details).toMatchObject({ code: "coin_not_mintable" });
+    expect(text(result)).toContain("USDC.e is issued only by its issuer");
+    expect(payments.mint).not.toHaveBeenCalled();
   });
 
-  it("throws on unknown coin", async () => {
-    mockResolveCoinId.mockReturnValue(null);
-
-    await expect(
-      topUpTool.execute("call-4", { coin: "FAKE", amount: 100 }),
-    ).rejects.toThrow('Unknown coin "FAKE"');
+  it("lists only mintable coins for an unknown coin", async () => {
+    const result = await topUp({ coin: "DOGE" });
+    expect(result.details).toMatchObject({ code: "unknown_coin" });
+    expect(text(result)).toContain("Available coins: UCT, USDU, BTC, SNAKE.");
   });
 
-  it("throws on zero amount", async () => {
-    mockResolveCoinId.mockReturnValue("unicity");
-
-    await expect(
-      topUpTool.execute("call-5", { coin: "UCT", amount: 0 }),
-    ).rejects.toThrow("Amount must be greater than 0");
+  it.each([[100], ["1e2"], ["0"], ["-5"], ["0.5"]])("rejects amount %j", async (amount) => {
+    const result = await topUp({ coin: amount === "0.5" ? "SNAKE" : "UCT", amount });
+    expect(result.details).toMatchObject({ code: "invalid_amount" });
+    expect(payments.mint).not.toHaveBeenCalled();
   });
 
-  it("throws on negative amount", async () => {
-    mockResolveCoinId.mockReturnValue("unicity");
-
-    await expect(
-      topUpTool.execute("call-6", { coin: "UCT", amount: -10 }),
-    ).rejects.toThrow("Amount must be greater than 0");
+  it("refuses while the registry is not loaded", async () => {
+    registry.ready = false;
+    expect((await topUp({})).details).toMatchObject({ code: "registry_not_ready" });
   });
 
-  it("throws when wallet has no nametag", async () => {
-    mockGetSphere.mockReturnValue({
-      identity: { chainPubkey: "abc123" },
-    });
+  it("tells the model not to retry a mint that did not confirm, and blocks an identical retry", async () => {
+    payments.mint.mockResolvedValueOnce({ success: false, error: "aggregator timeout" });
+    const result = await topUp({});
+    expect(text(result)).toContain("MINT NOT CONFIRMED — DO NOT RETRY");
+    expect(text(result)).toContain("aggregator timeout");
+    expect(result.details).toMatchObject({ outcome: "possibly_committed" });
+    expect(result.details).not.toHaveProperty("status");
 
-    await expect(
-      topUpTool.execute("call-7", { coin: "UCT", amount: 100 }),
-    ).rejects.toThrow("nametag is required");
+    expect((await topUp({})).details).toMatchObject({ code: "duplicate" });
+    expect(payments.mint).toHaveBeenCalledTimes(1);
   });
 
-  it("returns error message on HTTP failure", async () => {
-    mockResolveCoinId.mockReturnValue("unicity");
-    mockFetch.mockResolvedValue({
-      ok: false,
-      status: 429,
-      statusText: "Too Many Requests",
-      text: () => Promise.resolve("Rate limited"),
-    });
+  it("treats any thrown mint error as an unknown outcome and refuses an identical retry", async () => {
+    // A throw from mint() is a mint-journal write; the one after the chain mint leaves an entry the wallet replays.
+    payments.mint.mockRejectedValueOnce(Object.assign(new Error("ENOSPC: no space left on device"), { code: "ENOSPC" }));
+    const result = await topUp({});
+    expect(text(result)).toContain("MINT OUTCOME UNKNOWN — DO NOT RETRY");
+    expect(text(result)).not.toContain("Mint failed");
+    expect(result.details).toMatchObject({ outcome: "possibly_committed", code: "ENOSPC" });
+    expect(result.details).not.toHaveProperty("status");
+    expect(ledgerEntries()[0].state).toBe("possibly_committed");
 
-    const result = await topUpTool.execute("call-8", { coin: "UCT", amount: 100 });
-    expect(result.content[0].text).toContain("failed");
-    expect(result.content[0].text).toContain("429");
+    expect((await topUp({})).details).toMatchObject({ code: "duplicate" });
+    expect(payments.mint).toHaveBeenCalledTimes(1);
   });
 
-  it("returns error message when faucet returns success: false", async () => {
-    mockResolveCoinId.mockReturnValue("unicity");
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ success: false, message: "Daily limit reached" }),
-    });
+  it("keeps an unresolved mint blocking past the duplicate window, but a completed one only for the window", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-10-12T12:00:00Z"));
+      payments.mint.mockResolvedValueOnce({ success: false, error: "aggregator timeout" });
+      await topUp({});
+      vi.setSystemTime(new Date("2026-10-12T13:00:00Z")); // 1 h later: past the 15-minute duplicate window
+      expect((await topUp({})).details).toMatchObject({ code: "duplicate" });
+      expect(payments.mint).toHaveBeenCalledTimes(1);
 
-    const result = await topUpTool.execute("call-9", { coin: "UCT", amount: 100 });
-    expect(result.content[0].text).toContain("failed");
-    expect(result.content[0].text).toContain("Daily limit reached");
+      vi.setSystemTime(new Date("2026-10-13T12:30:00Z")); // past the 24 h unresolved window
+      expect((await topUp({})).details).toMatchObject({ outcome: "minted" });
+      expect(payments.mint).toHaveBeenCalledTimes(2);
+
+      vi.setSystemTime(new Date("2026-10-13T13:00:00Z")); // a completed mint blocks only for the duplicate window
+      expect((await topUp({})).details).toMatchObject({ outcome: "minted" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("treats an uncoded mint failure as an unknown outcome", async () => {
+    payments.mint.mockRejectedValueOnce(new TypeError("boom"));
+    expect((await topUp({})).details).toMatchObject({ outcome: "possibly_committed", code: "UNKNOWN" });
+  });
+
+  it("does not mint when the ledger cannot be read", async () => {
+    storageControl.failReads = "EIO";
+    expect((await topUp({})).details).toMatchObject({ code: "ledger_unavailable" });
+    expect(payments.mint).not.toHaveBeenCalled();
+  });
+
+  it("explains a messaging-only wallet", async () => {
+    wallet.sphere = makeSphere(payments, { hasPayments: false });
+    expect((await topUp({})).details).toMatchObject({ code: "payments_unavailable" });
   });
 });

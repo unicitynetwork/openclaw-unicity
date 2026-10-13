@@ -1,164 +1,99 @@
-/** Asset registry — loads coin metadata from unicity-ids JSON. */
+/**
+ * Coin metadata and amount conversion over the SDK token registry.
+ * Every process-global registry call lives here, so the SDK's planned removal of the global registry is a one-file change.
+ */
 
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import {
+  TokenRegistry,
+  getCoinIdByName,
+  getCoinIdBySymbol,
+  getTokenDecimals,
+  getTokenDefinition,
+  getTokenName,
+  getTokenSymbol,
+  parseTokenAmount,
+  toHumanReadable,
+  type TokenDefinition,
+} from "@unicitylabs/sphere-sdk";
+import { quoteUntrusted } from "./text.js";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+export type CoinInfo = { coinId: string; symbol: string; name: string; decimals: number; claimed: boolean };
 
-interface AssetEntry {
-  network: string;
-  assetKind: string;
-  name: string;
-  symbol?: string;
-  decimals?: number;
-  description?: string;
-  id: string;
+/** Names people use for coins the registry lists under another symbol. */
+const SYMBOL_ALIASES: Record<string, string> = { usdc: "USDC.e" };
+
+const HEX64 = /^[0-9a-fA-F]{64}$/;
+
+/**
+ * Waits for the registry's first load (Sphere.init starts it without awaiting).
+ * Also true when a later refresh filled a registry whose first load failed.
+ */
+export async function ensureRegistryReady(timeoutMs = 10_000): Promise<boolean> {
+  const loaded = await TokenRegistry.waitForReady(timeoutMs).catch(() => false);
+  return loaded || TokenRegistry.getInstance().getFungibleTokens().length > 0;
 }
 
-interface AssetRegistry {
-  /** Map from lowercase name, symbol, or coin id to coin name */
-  aliases: Map<string, string>;
-  /** Map from coin name to symbol */
-  symbols: Map<string, string>;
-  /** Map from coin name to decimals */
-  decimals: Map<string, number>;
-  /** Map from coin name to coin id */
-  coinIds: Map<string, string>;
-  /** List of all available symbols */
-  availableSymbols: string[];
+function toCoinInfo(def: TokenDefinition | undefined): CoinInfo | null {
+  if (!def || def.assetKind !== "fungible" || !def.symbol) return null;
+  return {
+    coinId: def.id.toLowerCase(),
+    symbol: def.symbol,
+    name: def.name,
+    decimals: def.decimals ?? 0,
+    claimed: def.issuance !== undefined,
+  };
 }
 
-let cachedRegistry: AssetRegistry | null = null;
+/** Fungible coin by symbol (case-insensitive), name, or known 64-hex coin id; "USDC" maps to "USDC.e". */
+export function resolveCoin(input: string): CoinInfo | null {
+  const value = input.trim();
+  if (!value) return null;
+  if (HEX64.test(value)) return toCoinInfo(getTokenDefinition(value.toLowerCase()));
+  const alias = SYMBOL_ALIASES[value.toLowerCase()];
+  const coinId = getCoinIdBySymbol(value) ?? (alias ? getCoinIdBySymbol(alias) : undefined) ?? getCoinIdByName(value);
+  return coinId ? toCoinInfo(getTokenDefinition(coinId)) : null;
+}
 
-function loadRegistry(): AssetRegistry {
-  if (cachedRegistry) return cachedRegistry;
+/** Display metadata for a coin id; unknown ids fall back to the registry's placeholders (hex prefix, 0 decimals). */
+export function describeCoin(coinId: string): { symbol: string; decimals: number; name: string } {
+  const info = toCoinInfo(getTokenDefinition(coinId));
+  if (info) return { symbol: info.symbol, decimals: info.decimals, name: info.name };
+  return { symbol: getTokenSymbol(coinId), decimals: getTokenDecimals(coinId), name: getTokenName(coinId) };
+}
 
-  const jsonPath = join(__dirname, "resources", "unicity-ids.testnet.json");
-  const raw = readFileSync(jsonPath, "utf-8");
-  const entries: AssetEntry[] = JSON.parse(raw);
+export function getAvailableSymbols(opts?: { excludeClaimed?: boolean }): string[] {
+  return TokenRegistry.getInstance()
+    .getFungibleTokens()
+    .filter((def) => def.symbol && !(opts?.excludeClaimed && def.issuance))
+    .map((def) => def.symbol as string);
+}
 
-  const aliases = new Map<string, string>();
-  const symbols = new Map<string, string>();
-  const decimals = new Map<string, number>();
-  const coinIds = new Map<string, string>();
-  const availableSymbols: string[] = [];
+/**
+ * "1.5 UCT" from base units. decimals/symbol default from the registry; a coin the registry does not know
+ * is shown in base units with its id rather than with guessed decimals.
+ */
+export function formatAmount(amount: string | bigint, coinId: string, decimals?: number, symbol?: string): string {
+  const base = amount.toString();
+  if (decimals !== undefined) return `${toHumanReadable(base, decimals)} ${symbol ?? describeCoin(coinId).symbol}`;
+  const info = toCoinInfo(getTokenDefinition(coinId));
+  if (!info) return `${base} base units of coin ${shownCoinId(coinId)}`;
+  return `${toHumanReadable(base, info.decimals)} ${symbol ?? info.symbol}`;
+}
 
-  for (const entry of entries) {
-    // Only include fungible assets
-    if (entry.assetKind !== "fungible") continue;
-    if (!entry.symbol) continue;
+/** An unknown coin id as text: a hex id shortened, anything else (sender-chosen) escaped and bounded. */
+function shownCoinId(coinId: string): string {
+  return /^[0-9a-f]+$/i.test(coinId) ? `${coinId.slice(0, 12)}…` : quoteUntrusted(coinId, 12) || '""';
+}
 
-    const name = entry.name;
-    const symbol = entry.symbol;
-
-    // Map name, symbol (lowercase), and coin id to the coin name
-    aliases.set(name.toLowerCase(), name);
-    aliases.set(symbol.toLowerCase(), name);
-    aliases.set(entry.id, name);
-
-    // Store symbol, decimals, and coin id
-    symbols.set(name, symbol);
-    coinIds.set(name, entry.id);
-    if (entry.decimals !== undefined) {
-      decimals.set(name, entry.decimals);
-    }
-
-    availableSymbols.push(symbol);
+/** Strict human -> base units (SDK parseTokenAmount); throws Error with a user-facing message on bad input. */
+export function parseHumanAmount(amount: string, decimals: number): bigint {
+  let value: bigint;
+  try {
+    value = parseTokenAmount(amount, decimals);
+  } catch {
+    const places = decimals === 0 ? "a whole number (this coin has no decimal places)" : `at most ${decimals} decimal places`;
+    throw new Error(`Invalid amount "${amount}": use a plain decimal string such as "1.5", with ${places}.`);
   }
-
-  cachedRegistry = { aliases, symbols, decimals, coinIds, availableSymbols };
-  return cachedRegistry;
-}
-
-/** Resolve user input (name or symbol) to coin name, or null if not found */
-export function resolveCoinId(input: string): string | null {
-  const registry = loadRegistry();
-  return registry.aliases.get(input.toLowerCase().trim()) ?? null;
-}
-
-/** Get symbol for a coin (accepts name, symbol, or coin id) */
-export function getCoinSymbol(coin: string): string {
-  const registry = loadRegistry();
-  const name = registry.aliases.get(coin) ?? registry.aliases.get(coin.toLowerCase()) ?? coin;
-  return registry.symbols.get(name) ?? coin.toUpperCase();
-}
-
-/** Get decimals for a coin (accepts name, symbol, or coin id) */
-export function getCoinDecimals(coin: string): number | undefined {
-  const registry = loadRegistry();
-  const name = registry.aliases.get(coin) ?? registry.aliases.get(coin.toLowerCase());
-  return name ? registry.decimals.get(name) : registry.decimals.get(coin);
-}
-
-/** Get coin id for a coin (accepts name, symbol, or coin id) */
-export function getCoinId(coin: string): string | undefined {
-  const registry = loadRegistry();
-  const name = registry.aliases.get(coin) ?? registry.aliases.get(coin.toLowerCase());
-  return name ? registry.coinIds.get(name) : registry.coinIds.get(coin);
-}
-
-/** Get list of all available symbols for display */
-export function getAvailableSymbols(): string[] {
-  const registry = loadRegistry();
-  return registry.availableSymbols;
-}
-
-// =============================================================================
-// Currency Conversion Utilities
-// =============================================================================
-
-/**
- * Convert human-readable amount to smallest unit string
- * @example toSmallestUnit("1.5", 18) => "1500000000000000000"
- */
-export function toSmallestUnit(amount: number | string, decimals: number): string {
-  if (!amount) return "0";
-
-  const str = amount.toString();
-  const [integer, fraction = ""] = str.split(".");
-
-  // Pad fraction to exact decimal places, truncate if longer
-  const paddedFraction = fraction.padEnd(decimals, "0").slice(0, decimals);
-
-  // Remove leading zeros but keep at least one digit
-  const result = (integer + paddedFraction).replace(/^0+/, "") || "0";
-  return result;
-}
-
-/**
- * Convert smallest unit string to human-readable amount
- * @example toHumanReadable("1500000000000000000", 18) => "1.5"
- */
-export function toHumanReadable(amount: string, decimals: number): string {
-  if (!amount || amount === "0") return "0";
-
-  const str = amount.padStart(decimals + 1, "0");
-  const integer = str.slice(0, -decimals) || "0";
-  const fraction = str.slice(-decimals).replace(/0+$/, "");
-
-  return fraction ? `${integer}.${fraction}` : integer;
-}
-
-/**
- * Format amount for display with symbol
- * @param amount Amount in smallest units
- * @param coinName Coin name (e.g., "unicity")
- */
-export function formatAmount(amount: string, coinName: string): string {
-  const decimals = getCoinDecimals(coinName) ?? 0;
-  const symbol = getCoinSymbol(coinName);
-  const readable = toHumanReadable(amount, decimals);
-  return `${readable} ${symbol}`;
-}
-
-/**
- * Parse user input amount to smallest units for a given coin
- * @param amount Human-readable amount (e.g., "100" or "1.5")
- * @param coinName Coin name (e.g., "unicity")
- */
-export function parseAmount(amount: number | string, coinName: string): string {
-  const decimals = getCoinDecimals(coinName) ?? 0;
-  return toSmallestUnit(amount, decimals);
+  if (value <= 0n) throw new Error("Amount must be greater than 0.");
+  return value;
 }

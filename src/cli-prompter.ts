@@ -1,65 +1,71 @@
-/** WizardPrompter adapter wrapping @clack/prompts for CLI use. */
+/** WizardPrompter adapter over @clack/prompts (1.x) for the `openclaw unicity` CLI. */
 
 import * as clack from "@clack/prompts";
-import type { WizardPrompter } from "openclaw/plugin-sdk";
+import { WizardCancelledError } from "openclaw/plugin-sdk/setup";
+import type { WizardMultiSelectParams, WizardPrompter, WizardSelectParams } from "openclaw/plugin-sdk/setup";
+
+/** clack's Option<T> is a conditional type it does not export; derive it from select(). */
+type ClackOption<T> = Parameters<typeof clack.select<T>>[0]["options"][number];
+
+/** A cancelled prompt (ctrl-c, esc) throws WizardCancelledError, as OpenClaw's own prompter does. */
+function unlessCancelled<T>(result: T | typeof clack.CANCEL_SYMBOL): T {
+  if (clack.isCancel(result)) throw new WizardCancelledError("Setup cancelled");
+  return result;
+}
 
 export function createCliPrompter(): WizardPrompter {
   return {
-    async intro() { /* handled externally */ },
-    async outro() { /* handled externally */ },
-    async note(message: string, title?: string) {
+    async intro(title) {
+      clack.intro(title);
+    },
+    async outro(message) {
+      clack.outro(message);
+    },
+    async note(message, title) {
       clack.note(message, title);
     },
-    async select<T>(params: { message: string; options: Array<{ value: T; label: string; hint?: string }>; initialValue?: T }): Promise<T> {
-      const result = await clack.select({
+    async select<T>(params: WizardSelectParams<T>) {
+      const result = await clack.select<T>({
         message: params.message,
-        options: params.options,
+        options: params.options as ClackOption<T>[],
         initialValue: params.initialValue,
       });
-      if (clack.isCancel(result)) {
-        throw new Error("Setup cancelled");
-      }
-      return result as T;
+      return unlessCancelled(result);
     },
-    async multiselect<T>(params: { message: string; options: Array<{ value: T; label: string }>; initialValues?: T[] }): Promise<T[]> {
-      const result = await clack.multiselect({
+    async multiselect<T>(params: WizardMultiSelectParams<T>) {
+      const result = await clack.multiselect<T>({
         message: params.message,
-        options: params.options,
+        options: params.options as ClackOption<T>[],
         initialValues: params.initialValues,
       });
-      if (clack.isCancel(result)) {
-        throw new Error("Setup cancelled");
-      }
-      return result as T[];
+      return unlessCancelled(result);
     },
-    async text(params: { message: string; initialValue?: string; placeholder?: string; validate?: (value: string) => string | undefined }): Promise<string> {
-      const result = await clack.text({
+    async text(params) {
+      const validate = params.validate;
+      const options = {
         message: params.message,
-        initialValue: params.initialValue,
-        placeholder: params.placeholder,
-        validate: params.validate,
-      });
-      if (clack.isCancel(result)) {
-        throw new Error("Setup cancelled");
-      }
-      return result as string;
+        signal: params.signal,
+        validate: validate ? (value: string | undefined) => validate(value ?? "") : undefined,
+      };
+      const result = params.sensitive
+        ? await clack.password(options)
+        : await clack.text({ ...options, initialValue: params.initialValue, placeholder: params.placeholder });
+      return unlessCancelled(result);
     },
-    async confirm(params: { message: string; initialValue?: boolean }): Promise<boolean> {
+    async confirm(params) {
       const result = await clack.confirm({
         message: params.message,
         initialValue: params.initialValue,
+        vertical: params.layout === "vertical",
       });
-      if (clack.isCancel(result)) {
-        throw new Error("Setup cancelled");
-      }
-      return result as boolean;
+      return unlessCancelled(result);
     },
-    progress(label: string) {
+    progress(label) {
       const spinner = clack.spinner();
       spinner.start(label);
       return {
-        update(message: string) { spinner.message(message); },
-        stop(message?: string) { spinner.stop(message); },
+        update: (message) => spinner.message(message),
+        stop: (message) => spinner.stop(message),
       };
     },
   };
