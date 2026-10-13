@@ -64,7 +64,7 @@ This asks for the agent's nametag, the owner (your `@nametag` or public key), th
 openclaw gateway start
 ```
 
-On first start the plugin creates the wallet, saves the mnemonic to `mnemonic.txt` in its [data directory](#data-storage) (`~/.openclaw/unicity/` by default; mode 0600; back it up, the gateway logs the full path), registers the nametag and DMs the owner a greeting. If the wallet cannot open (no network yet, or a CLI command holds the wallet), the gateway keeps retrying with backoff (5 s doubling up to 5 min) instead of giving up.
+On the first start with an owner configured (`owner` or `ownerPubkeys`), the plugin creates the wallet, saves the mnemonic to `mnemonic.txt` in its [data directory](#data-storage) (`~/.openclaw/unicity/` by default; mode 0600; back it up, the gateway logs the full path), registers the nametag and DMs the owner a greeting. If the wallet cannot open (no network yet, or a CLI command holds the wallet), the gateway keeps retrying with backoff (5 s doubling up to 5 min) instead of giving up. Until an owner is configured the gateway creates no wallet and logs `No owner configured`, so installing the plugin before running setup still gets the owner the greeting; the config change that adds the owner starts it. A wallet that already exists opens without an owner.
 
 ## Configuration
 
