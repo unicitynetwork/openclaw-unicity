@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   ownerAuthorityOpts: [] as unknown[],
   registerUnicityCli: vi.fn(),
   setUnicityRuntime: vi.fn(),
+  walletExists: vi.fn(),
 }));
 
 // Same mode gating as openclaw/plugin-sdk/channel-core defineChannelPluginEntry (dist/core-*.mjs).
@@ -45,6 +46,7 @@ vi.mock("../src/sphere.js", () => ({
   closeGatewayWallet: mocks.closeGatewayWallet,
   getSphereOrNull: mocks.getSphereOrNull,
 }));
+vi.mock("../src/storage.js", () => ({ MNEMONIC_PATH: "/tmp/state/unicity/mnemonic.txt", walletExists: mocks.walletExists }));
 vi.mock("../src/identity.js", () => ({
   OwnerAuthority: class {
     constructor(opts: unknown) {
@@ -111,6 +113,7 @@ beforeEach(() => {
   mocks.ownerAuthorityOpts.length = 0;
   mocks.openGatewayWallet.mockReturnValue(new Promise(() => undefined));
   mocks.closeGatewayWallet.mockResolvedValue(undefined);
+  mocks.walletExists.mockReturnValue(true);
 });
 
 describe("plugin entry", () => {
@@ -233,6 +236,40 @@ describe("wallet service", () => {
     expect(mocks.setOwnerAuthority).toHaveBeenCalledOnce();
     expect(mocks.ownerAuthorityOpts[0]).toMatchObject({ owner: "alice", ownerPubkeys: ["c".repeat(64)], log: ctx.logger });
     expect(ctx.logger.warn).toHaveBeenCalledWith(expect.stringContaining('unknown network "nonsense"'));
+  });
+
+  describe("without an owner", () => {
+    const withOwner = (owner: Record<string, unknown>) => ({ plugins: { entries: { "openclaw-unicity": { config: owner } } } });
+
+    it("creates no wallet until an owner is configured", async () => {
+      mocks.walletExists.mockReturnValue(false);
+      const api = makeApi("full");
+      entry.register(api as never);
+      const service = serviceOf(api);
+      const ctx = serviceCtx(withOwner({ nametag: "mybot" }));
+      expect(service.start(ctx)).toBeUndefined();
+      expect(mocks.openGatewayWallet).not.toHaveBeenCalled();
+      expect(ctx.logger.warn).toHaveBeenCalledWith(expect.stringContaining("No owner configured"));
+      await service.stop(ctx);
+      expect(mocks.closeGatewayWallet).toHaveBeenCalledOnce();
+    });
+
+    it("creates the wallet when only ownerPubkeys names an owner", () => {
+      mocks.walletExists.mockReturnValue(false);
+      const api = makeApi("full");
+      entry.register(api as never);
+      serviceOf(api).start(serviceCtx(withOwner({ ownerPubkeys: ["c".repeat(64)] })));
+      expect(mocks.openGatewayWallet).toHaveBeenCalledOnce();
+    });
+
+    it("still opens a wallet that already exists", () => {
+      const api = makeApi("full");
+      entry.register(api as never);
+      const ctx = serviceCtx();
+      serviceOf(api).start(ctx);
+      expect(mocks.openGatewayWallet).toHaveBeenCalledOnce();
+      expect(ctx.logger.warn).not.toHaveBeenCalledWith(expect.stringContaining("No owner configured"));
+    });
   });
 
   it("stop() aborts a pending open and closes the wallet", async () => {

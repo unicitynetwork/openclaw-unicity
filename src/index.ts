@@ -10,7 +10,7 @@ import { OWNER_ONLY_TOOL_NAMES, TOOL_GATE_MATCHER, beforeToolCallGate, gatedTool
 import { buildIdentityBlock } from "./prompt.js";
 import { setUnicityRuntime } from "./runtime.js";
 import { closeGatewayWallet, getSphereOrNull, openGatewayWallet } from "./sphere.js";
-import { MNEMONIC_PATH } from "./storage.js";
+import { MNEMONIC_PATH, walletExists } from "./storage.js";
 import { createPrivateGroupTool } from "./tools/create-private-group.js";
 import { createPublicGroupTool } from "./tools/create-public-group.js";
 import { getBalanceTool } from "./tools/get-balance.js";
@@ -95,6 +95,12 @@ function registerWalletService(api: OpenClawPluginApi): void {
       const cfg = readPluginConfig(ctx.config);
       for (const w of cfg.warnings) ctx.logger.warn(`[unicity] ${w}`);
       setOwnerAuthority(new OwnerAuthority({ owner: cfg.owner, ownerPubkeys: cfg.ownerPubkeys, log: ctx.logger }));
+      // A new wallet greets its owner once, when it is created: create none until there is an owner to greet. The
+      // config reload that adds the owner restarts this service.
+      if (!cfg.owner && cfg.ownerPubkeys.length === 0 && !walletExists()) {
+        ctx.logger.warn("[unicity] No owner configured: the wallet is created once one is. Run 'openclaw unicity setup'.");
+        return;
+      }
       const abort = new AbortController();
       starting = abort;
       void openWalletWithRetry(cfg, ctx, abort.signal);
